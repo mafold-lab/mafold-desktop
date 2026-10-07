@@ -145,4 +145,8 @@ jobs:
       - name: GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --title "Mafold ${TAG#v}" --notes "Mafold for macOS and Windows ${TAG#v}. Download: https://mafold.com/download"
+        # A block scalar, not a plain one: the notes' "Download: https…" is a
+        # `key: value` to YAML, and GitHub rejected the whole file over it.
+        run: |
+          gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --title "Mafold ${TAG#v}" \
+            --notes "Mafold for macOS and Windows ${TAG#v}. Download: https://mafold.com/download"
