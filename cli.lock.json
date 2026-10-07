@@ -1,0 +1,9 @@
+{
+  "repo": "mafold-lab/mafold-cli",
+  "version": "0.9.138",
+  "sha256": {
+    "aarch64-apple-darwin": "e4d73fa461e18caa2ec43d5d4a298ab0892799173bbb666cd435e4adb43b81c2",
+    "x86_64-apple-darwin": "6be87ba5262867c93d4d9289b3cf102bc0bd66498232abd6a8ec3b344549d97e",
+    "x86_64-pc-windows-msvc": "79420094faef80cb51a4d6360e2303587a57f4afab759713e2337d42b6e54395"
+  }
+}

@@ -1,0 +1,87 @@
+# Packaging. Release builds run on the public mirror's macOS and Windows
+# runners (owner, 2026-10-05); this file is the whole recipe.
+#
+#   macOS    dmg + zip, arm64 and x64 in ONE run, so a single latest-mac.yml
+#            lists both (two runs would each write one and the later upload
+#            would drop the other architecture's updates). Developer ID signed
+#            (CSC_LINK / CSC_KEY_PASSWORD) and notarized with an App Store
+#            Connect API key (APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER).
+#   Windows  per-user NSIS installer, x64. Not code-signed (owner, 2026-10-05):
+#            no publisherName, so electron-updater verifies the sha512 in
+#            latest.yml and nothing else.
+appId: com.mafold.desktop
+productName: Mafold
+copyright: Copyright © Mafold
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**
+  - static/**
+  - package.json
+
+# Icons the OS opens by path (tray, Windows notifications) — outside app.asar.
+# And the mafold-cli build this release bundles, one per architecture
+# (scripts/fetch-cli.mjs, pinned in cli.lock.json): copied to ~/.mafold the first
+# time someone runs bots on this computer (src/main/daemon/cli.ts), never run
+# from inside the app.
+extraResources:
+  - from: resources
+    to: resources
+  - from: bin/${platform}-${arch}
+    to: resources/bin/${platform}-${arch}
+
+protocols:
+  - name: Mafold
+    schemes: [mafold]
+
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+
+mac:
+  category: public.app-category.social-networking
+  icon: build/icon-mac.png
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # The bundled cli is already Developer ID–signed by its own release, with the
+  # fixed identifier com.mafold.cli that macOS keys Full Disk Access grants on.
+  # Re-signing it with the app's identity would make every user grant it again.
+  signIgnore:
+    - "/resources/bin/darwin-[a-z0-9]+/mafold$"
+  artifactName: Mafold-${version}-${arch}-mac.${ext}
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  extendInfo:
+    NSMicrophoneUsageDescription: Mafold uses the microphone when you dictate a message.
+
+dmg:
+  artifactName: Mafold-${version}-${arch}.dmg
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+  deleteAppDataOnUninstall: false
+  artifactName: Mafold-Setup-${version}.${ext}
+
+publish:
+  provider: generic
+  url: https://cdn.mafold.com/desktop/stable/

@@ -1,0 +1,31 @@
+{
+  "name": "mafold-desktop",
+  "productName": "Mafold",
+  "version": "0.1.0",
+  "description": "Mafold for macOS and Windows",
+  "author": "Mafold",
+  "homepage": "https://mafold.com",
+  "private": true,
+  "main": "dist/main/index.js",
+  "scripts": {
+    "sync": "node scripts/sync-shared.mjs && node scripts/strings.mjs",
+    "build": "npm run typecheck && node scripts/build.mjs",
+    "typecheck": "npm run sync && tsc -p tsconfig.test.json",
+    "test": "npm run sync && vitest run",
+    "e2e": "npm run build && playwright test",
+    "start": "npm run build && electron .",
+    "dist": "npm run build && electron-builder --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "typescript": "^5",
+    "vitest": "^4.1.10"
+  }
+}

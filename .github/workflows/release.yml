@@ -1,0 +1,148 @@
+# Mafold desktop — release build. This file runs in the PUBLIC repo
+# mafold-lab/mafold-desktop (its SSOT is mafold-desktop/.github/workflows/
+# release.yml in the monorepo, mirrored there by release-desktop.yml together
+# with the rest of this tree). A `v<X.Y.Z>` tag pushed by that mirror starts it.
+#
+# Public repo ⇒ GitHub-hosted macOS / Windows runners are free (owner,
+# 2026-10-05: build here, the same way mafold-cli does).
+#
+#   build-mac  macos-latest: arm64 + x64 in ONE electron-builder run (so one
+#              latest-mac.yml lists both), Developer ID signed + notarized.
+#   build-win  windows-latest: per-user NSIS installer, x64, NOT code-signed
+#              (owner, 2026-10-05) — SmartScreen asks on first run; updates
+#              are verified by the sha512 in latest.yml.
+#   publish    R2 (cdn.mafold.com/desktop/stable/, what the in-app updater and
+#              the download page read) + a GitHub Release here.
+#
+# Secrets on THIS repo:
+#   MACOS_CERT_P12_BASE64, MACOS_CERT_PASSWORD        Developer ID Application (team UGZPUZZYDD)
+#   MACOS_NOTARY_KEY_P8_BASE64, MACOS_NOTARY_KEY_ID, MACOS_NOTARY_ISSUER_ID   App Store Connect API key
+#   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET          write access to desktop/ only
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.ref_name }}
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Tag == package.json version
+        run: |
+          V="$(node -p 'require("./package.json").version')"
+          [ "v$V" = "$TAG" ] || { echo "::error::tag $TAG != package.json $V"; exit 1; }
+      - run: npm ci
+      - name: Bundled mafold-cli (pinned, checksummed, must answer status --json)
+        run: node scripts/fetch-cli.mjs --mac --check
+      - name: Build, sign, notarize
+        env:
+          CSC_LINK: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_P8: ${{ secrets.MACOS_NOTARY_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          # Hard failures, not warnings: an unsigned or un-notarized mac app is
+          # blocked by Gatekeeper outright — there is nothing worth shipping.
+          [ -n "${CSC_LINK:-}" ] || { echo "::error::MACOS_CERT_P12_BASE64 / MACOS_CERT_PASSWORD are not set on this repo"; exit 1; }
+          [ -n "${NOTARY_P8:-}" ] || { echo "::error::MACOS_NOTARY_KEY_P8_BASE64 is not set on this repo"; exit 1; }
+          echo "$NOTARY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          export APPLE_API_KEY="$RUNNER_TEMP/notary.p8"
+          npm run build
+          npx electron-builder --mac --publish never
+      - name: The bundled cli kept its own signature
+        run: |
+          for app in release/mac*/Mafold.app; do
+            for cli in "$app"/Contents/Resources/resources/bin/darwin-*/mafold; do
+              codesign -dv "$cli" 2>&1 | grep -q 'Identifier=com.mafold.cli' || { echo "::error::$cli was re-signed"; exit 1; }
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest-mac.yml
+          if-no-files-found: error
+
+  build-win:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Bundled mafold-cli (pinned, checksummed, must answer status --json)
+        run: node scripts/fetch-cli.mjs --win --check
+      - name: Build (unsigned)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npm run build
+          npx electron-builder --win --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+          if-no-files-found: error
+
+  publish:
+    needs: [build-mac, build-win]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Upload to R2 (cdn.mafold.com/desktop/stable/)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          [ -n "${AWS_ACCESS_KEY_ID:-}" ] || { echo "::error::R2 secrets are not set on this repo"; exit 1; }
+          EP="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          DEST="s3://${R2_BUCKET}/desktop/stable"
+          V="${TAG#v}"
+          put() { aws s3 cp --endpoint-url "$EP" --only-show-errors --cache-control "$3" "$1" "$DEST/$2"; }
+          cd out
+          # 1. The versioned files — immutable.
+          for f in *.dmg *.zip *.blockmap *.exe; do put "$f" "$f" "public, max-age=31536000, immutable"; done
+          # 2. Fixed names for the download page — always this release.
+          put "Mafold-$V-arm64.dmg" "Mafold-mac-arm64.dmg" "no-cache"
+          put "Mafold-$V-x64.dmg"   "Mafold-mac-x64.dmg"   "no-cache"
+          put "Mafold-Setup-$V.exe" "Mafold-Setup.exe"     "no-cache"
+          # 3. The update feeds LAST: an app must never be told about a file
+          #    that is not there yet.
+          put latest-mac.yml latest-mac.yml "no-cache"
+          put latest.yml     latest.yml     "no-cache"
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --title "Mafold ${TAG#v}" --notes "Mafold for macOS and Windows ${TAG#v}. Download: https://mafold.com/download"
