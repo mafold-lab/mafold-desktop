@@ -4,7 +4,7 @@
 // clipped, before anything native sees it. Pure, so test/validate.spec.ts
 // covers it without Electron.
 
-import { HOST_COMMANDS, type Appearance, type HostEventName, type HostNotification, type UnreadSummary, type WindowAction } from "../shared/desktopHost.generated";
+import { HOST_COMMANDS, WINDOW_ACTIONS, type Appearance, type HostEventName, type HostNotification, type UnreadSummary, type WindowAction } from "../shared/desktopHost.generated";
 import { clip } from "./limits";
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,7 +55,8 @@ export const readAppearance = (v: unknown): Appearance | null => (v === "light" 
 export const readEventName = (v: unknown): HostEventName | null =>
   v === "navigate" || v === "command" || v === "resume" || v === "daemon" || v === "window" ? v : null;
 
-export const readWindowAction = (v: unknown): WindowAction | null => (v === "close" || v === "minimize" || v === "zoom" ? v : null);
+export const readWindowAction = (v: unknown): WindowAction | null =>
+  typeof v === "string" && (WINDOW_ACTIONS as readonly string[]).includes(v) ? (v as WindowAction) : null;
 
 export const isHostCommand = (v: unknown): boolean => typeof v === "string" && (HOST_COMMANDS as readonly string[]).includes(v);
 

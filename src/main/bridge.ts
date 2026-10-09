@@ -2,7 +2,8 @@
 // calling: only the main window's top frame, showing the web origin, is
 // answered. Child windows, subframes, the offline page — dropped silently.
 
-import { ipcMain, nativeTheme, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { ipcMain, nativeTheme, screen, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { arrangedBounds } from "./chrome";
 
 import { log } from "./log";
 import { showNotification } from "./notify";
@@ -93,12 +94,23 @@ export function registerBridge(
       const w = shell.window;
       const a = readWindowAction(action);
       if (!w || !a) return;
-      // close hides (window.ts), like the system's own button; zoom is
-      // mafold-mac's — fill the screen and back, not full screen.
+      // close hides (window.ts), like the system's own button. zoom = fill the
+      // screen and back (the page sends it for ⌥-click, as macOS does);
+      // fullscreen = the green light's plain click.
       if (a === "close") w.close();
       else if (a === "minimize") w.minimize();
-      else if (w.isMaximized()) w.unmaximize();
-      else w.maximize();
+      else if (a === "zoom") {
+        if (w.isMaximized()) w.unmaximize();
+        else w.maximize();
+      } else if (a === "fullscreen") w.setFullScreen(!w.isFullScreen());
+      else {
+        // The move-and-resize menu: out of full screen / zoom first, so the
+        // window lands where asked instead of springing back on the next toggle.
+        if (w.isFullScreen()) return;
+        if (w.isMaximized()) w.unmaximize();
+        const area = screen.getDisplayMatching(w.getBounds()).workArea;
+        w.setBounds(arrangedBounds(a, area, w.getBounds()), true);
+      }
     });
   }
 

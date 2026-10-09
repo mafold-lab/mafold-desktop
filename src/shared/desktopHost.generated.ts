@@ -44,6 +44,11 @@ export const HOST_CAPS = [
   // close / minimise / zoom lights itself (`setWindowControls`, `windowControl`)
   // where mafold-mac drew them, and hears `on("window")` for full screen.
   "window-controls",
+  // `window-arrange` (macOS) — the green light does what the system's does:
+  // full screen on a click, zoom with ⌥, and the move-and-resize menu on hover
+  // (`windowControl` "fullscreen" / "fill" / "center" / "tile-left" / "tile-right").
+  // Without it the page's green light is the original zoom and nothing else.
+  "window-arrange",
 ] as const;
 
 export type HostCap = (typeof HOST_CAPS)[number];
@@ -105,7 +110,19 @@ export interface WindowState {
   fullscreen: boolean;
 }
 
-export type WindowAction = "close" | "minimize" | "zoom";
+export type WindowAction =
+  | "close"
+  | "minimize"
+  | "zoom"
+  // `window-arrange` only:
+  | "fullscreen"
+  | "fill"
+  | "center"
+  | "tile-left"
+  | "tile-right";
+
+/** Every action, for validating what arrives over the bridge. */
+export const WINDOW_ACTIONS: readonly WindowAction[] = ["close", "minimize", "zoom", "fullscreen", "fill", "center", "tile-left", "tile-right"];
 
 /**
  * This computer as a place bots run (mafold-cli's supervisor, managed by the

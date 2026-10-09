@@ -58,7 +58,13 @@
     "desktop.tray.stillRunning": "Mafold is still running. You can find it in the tray.",
     "desktop.tray.unread": "{count} unread",
     "desktop.update.ready": "A new version of Mafold is ready. Restart to use it.",
-    "desktop.update.restart": "Restart to Update"
+    "desktop.update.restart": "Restart to Update",
+    "desktop.window.arrange": "Move & Resize",
+    "desktop.window.center": "Center",
+    "desktop.window.controls": "Window controls",
+    "desktop.window.fill": "Fill",
+    "desktop.window.tileLeft": "Left Half",
+    "desktop.window.tileRight": "Right Half"
   },
   "zh-Hans": {
     "desktop.context.copyImage": "复制图片",
@@ -119,6 +125,12 @@
     "desktop.tray.stillRunning": "Mafold 还在后台运行,可以在托盘里找到它。",
     "desktop.tray.unread": "{count} 条未读",
     "desktop.update.ready": "Mafold 新版本已就绪,重启即可使用。",
-    "desktop.update.restart": "重启以更新"
+    "desktop.update.restart": "重启以更新",
+    "desktop.window.arrange": "移动与调整大小",
+    "desktop.window.center": "居中",
+    "desktop.window.controls": "窗口控制",
+    "desktop.window.fill": "填满",
+    "desktop.window.tileLeft": "左半屏",
+    "desktop.window.tileRight": "右半屏"
   }
 }

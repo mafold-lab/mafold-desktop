@@ -6,7 +6,7 @@ import { Strings } from "../src/main/i18n";
 import { clip, RateLimit, uniqueName } from "../src/main/limits";
 import { badgePng, badgeText, encodePng, renderBadge } from "../src/main/png";
 import { fit, MIN_SIZE, minSizeFor } from "../src/main/windowState";
-import { capsFor, NATIVE_TRAFFIC_POSITION, TRAFFIC_PILL } from "../src/main/chrome";
+import { arrangedBounds, capsFor, NATIVE_TRAFFIC_POSITION, TRAFFIC_PILL } from "../src/main/chrome";
 
 describe("resolveConfig", () => {
   it("ignores the environment entirely when packaged", () => {
@@ -124,6 +124,25 @@ describe("window chrome (macOS)", () => {
     expect(capsFor("windows")).not.toContain("window-controls");
     expect(capsFor("linux")).not.toContain("window-controls");
     expect(capsFor("windows")).toContain("daemon");
+    // The green light's arranging travels with the drawn lights.
+    expect(capsFor("macos")).toContain("window-arrange");
+    expect(capsFor("windows")).not.toContain("window-arrange");
+  });
+  it("arranges the window inside the display's work area", () => {
+    const area = { x: 0, y: 25, width: 1513, height: 957 };
+    const cur = { x: 300, y: 200, width: 1100, height: 700 };
+    expect(arrangedBounds("fill", area, cur)).toEqual(area);
+    const left = arrangedBounds("tile-left", area, cur);
+    const right = arrangedBounds("tile-right", area, cur);
+    expect(left).toEqual({ x: 0, y: 25, width: 756, height: 957 });
+    // the odd pixel goes right, and the halves meet with no gap or overlap
+    expect(right).toEqual({ x: 756, y: 25, width: 757, height: 957 });
+    expect(left.x + left.width).toBe(right.x);
+    expect(arrangedBounds("center", area, cur)).toEqual({ x: 207, y: 154, width: 1100, height: 700 });
+    // a window bigger than the area is clamped to it
+    expect(arrangedBounds("center", area, { x: 0, y: 0, width: 4000, height: 3000 })).toEqual(area);
+    // a second display to the left (negative x) keeps its own origin
+    expect(arrangedBounds("tile-right", { x: -1920, y: 0, width: 1920, height: 1055 }, cur)).toEqual({ x: -960, y: 0, width: 960, height: 1055 });
   });
   it("puts the system's lights inside mafold-mac's pill slot", () => {
     // the three buttons span ~54×16 from this corner

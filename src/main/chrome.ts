@@ -22,6 +22,39 @@ export const TRAFFIC_PILL = { top: 10, left: 12, width: 58, height: 44 } as cons
  *  the page is not drawing the lights: the three ~54×16 buttons centred in the slot. */
 export const NATIVE_TRAFFIC_POSITION = { x: TRAFFIC_PILL.left + 2, y: TRAFFIC_PILL.top + TRAFFIC_PILL.height / 2 - 8 } as const;
 
-/** What this shell offers on this OS: drawing the window's own lights is a
- *  macOS thing (Windows keeps its native frame). */
-export const capsFor = (os: Os): HostCap[] => HOST_CAPS.filter((c) => c !== "window-controls" || os === "macos");
+/** What this shell offers on this OS: drawing the window's own lights — and
+ *  the green light's arranging — is a macOS thing (Windows keeps its native frame). */
+const MAC_ONLY: readonly HostCap[] = ["window-controls", "window-arrange"];
+export const capsFor = (os: Os): HostCap[] => HOST_CAPS.filter((c) => !MAC_ONLY.includes(c) || os === "macos");
+
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Where the green light's move-and-resize menu puts the window, inside the
+ *  work area of the display it is on (macOS's Window ▸ Move & Resize). Halves
+ *  split the width; an odd pixel goes to the right half so the two meet. */
+export function arrangedBounds(action: "fill" | "center" | "tile-left" | "tile-right", area: Rect, current: Rect): Rect {
+  const half = Math.floor(area.width / 2);
+  switch (action) {
+    case "fill":
+      return { ...area };
+    case "tile-left":
+      return { x: area.x, y: area.y, width: half, height: area.height };
+    case "tile-right":
+      return { x: area.x + half, y: area.y, width: area.width - half, height: area.height };
+    case "center": {
+      const width = Math.min(current.width, area.width);
+      const height = Math.min(current.height, area.height);
+      return {
+        x: area.x + Math.round((area.width - width) / 2),
+        y: area.y + Math.round((area.height - height) / 2),
+        width,
+        height,
+      };
+    }
+  }
+}

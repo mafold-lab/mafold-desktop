@@ -53,8 +53,9 @@ describe("bridge payloads", () => {
     expect(readEventName("navigate")).toBe("navigate");
     expect(readEventName("window")).toBe("window");
     expect(readEventName("eval")).toBeNull();
-    expect(["close", "minimize", "zoom"].map(readWindowAction)).toEqual(["close", "minimize", "zoom"]);
-    expect([undefined, "fullscreen", "quit", { a: "close" }].map(readWindowAction)).toEqual([null, null, null, null]);
+    const actions = ["close", "minimize", "zoom", "fullscreen", "fill", "center", "tile-left", "tile-right"];
+    expect(actions.map(readWindowAction)).toEqual(actions);
+    expect([undefined, "quit", "tile-top", "FULLSCREEN", { a: "close" }].map(readWindowAction)).toEqual([null, null, null, null, null]);
     expect(isHostCommand("new-chat")).toBe(true);
     expect(isHostCommand("rm -rf")).toBe(false);
     expect(readLocale("zh-Hans", { a: "b" })).toEqual({ lang: "zh-Hans", strings: { a: "b" } });
