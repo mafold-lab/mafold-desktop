@@ -24,6 +24,7 @@ import {
   type HostNotification,
   type HostOs,
   type MafoldHost,
+  type NotifyPermission,
   type OAuthResult,
   type UnreadSummary,
   type WindowAction,
@@ -96,6 +97,11 @@ if (webOrigin && window.location.origin === webOrigin) {
       if (name === "window") {
         return subscribe(name, (p) => (cb as unknown as (s: WindowState) => void)({ fullscreen: p === "fullscreen" }));
       }
+      if (name === "notify-permission") {
+        return subscribe(name, (p) => {
+          if (p === "allowed" || p === "blocked" || p === "unknown") (cb as unknown as (s: NotifyPermission) => void)(p);
+        });
+      }
       return () => {};
     }) as MafoldHost["on"],
     setWindowControls: (drawn: boolean) => ipcRenderer.send(IPC.setWindowControls, drawn === true),
@@ -110,6 +116,11 @@ if (webOrigin && window.location.origin === webOrigin) {
       set: async (on: boolean): Promise<void> => {
         await ipcRenderer.invoke(IPC.autostartSet, on);
       },
+    },
+    notifications: {
+      permission: (): Promise<NotifyPermission> => ipcRenderer.invoke(IPC.notifyPermission),
+      test: (): Promise<NotifyPermission> => ipcRenderer.invoke(IPC.notifyTest),
+      openSettings: () => ipcRenderer.send(IPC.notifySettings),
     },
   };
 

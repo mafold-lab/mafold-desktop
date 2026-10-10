@@ -11,7 +11,7 @@ import { app, dialog, Menu, powerMonitor } from "electron";
 
 import { launchedAtLogin, makeAutostart } from "./autostart";
 import { registerBridge } from "./bridge";
-import { resolveConfig } from "./config";
+import { APP_ID, resolveConfig } from "./config";
 import { attachContextMenu } from "./contextMenu";
 import { cliPaths } from "./daemon/cli";
 import { DaemonManager } from "./daemon/manager";
@@ -20,9 +20,9 @@ import { deepLinkInArgv, parseDeepLink } from "./deeplink";
 import { Strings, type StringTable } from "./i18n";
 import { initLog, log } from "./log";
 import { buildMenu } from "./menu";
-import { notificationsShown } from "./notify";
+import { initNotifications, notificationsShown, notifyPermission, saw } from "./notify";
 import { staticPath } from "./paths";
-import { guardAllContents, guardSession } from "./security";
+import { enablePasskeys, guardAllContents, guardSession } from "./security";
 import { Shell } from "./shell";
 import { createTray, refreshTray, trayLabels } from "./tray";
 import { initUpdater } from "./updater";
@@ -32,7 +32,7 @@ import { DEEP_LINK_SCHEME } from "../shared/desktopHost.generated";
 const os = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux";
 const cfg = resolveConfig(process.env, app.isPackaged);
 if (cfg.test?.userData) app.setPath("userData", cfg.test.userData);
-if (os === "windows") app.setAppUserModelId("com.mafold.desktop");
+if (os === "windows") app.setAppUserModelId(APP_ID);
 
 // A window closed to the tray (or minimised) stops painting — its page is told
 // it is hidden, like a background tab — but keeps its timers at their pace:
@@ -101,6 +101,7 @@ if (!app.requestSingleInstanceLock()) {
     // the bare Electron binary as the system-wide handler.
     if (app.isPackaged && !app.isDefaultProtocolClient(DEEP_LINK_SCHEME)) app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
 
+    enablePasskeys(s, os);
     guardAllContents(s);
     guardSession(s);
     const win = createMainWindow(s, { startHidden: launchedAtLogin(os), os });
@@ -168,6 +169,7 @@ if (!app.requestSingleInstanceLock()) {
     }, 30_000).unref();
     app.on("before-quit", () => daemon.dispose());
 
+    initNotifications(s, app.getPath("userData"), os);
     registerBridge(s, os, makeAutostart(os), daemon);
     initUpdater(s);
 
@@ -187,6 +189,10 @@ if (!app.requestSingleInstanceLock()) {
         trayLabels: () => trayLabels(),
         unread: () => s.unread,
         notificationsShown: () => notificationsShown(),
+        notifyPermission: () => notifyPermission(),
+        // What a refused / shown notification records, without a notification
+        // server under xvfb to refuse or show one.
+        sawNotifyPermission: (p: "allowed" | "blocked" | "unknown") => saw(s, p),
         pendingAuth: () => s.pending.size,
         language: () => s.strings.language,
       };

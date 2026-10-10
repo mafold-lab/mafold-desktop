@@ -119,4 +119,20 @@ export class Shell {
     void electronShell.openExternal(url).catch((e) => log("openExternal failed:", e));
     return true;
   }
+
+  /** Open one of the system's own settings panes — a URL the shell built
+   *  (notify.ts), never one from the page. Same once-a-second limit; under e2e
+   *  written down instead of opened. */
+  openSystemSettings(url: string): boolean {
+    if (!this.externalLimit.allow("settings", Date.now())) {
+      log("rate-limited settings");
+      return false;
+    }
+    if (this.cfg.test?.externalLog) {
+      appendFileSync(this.cfg.test.externalLog, `settings\t${url}\n`);
+      return true;
+    }
+    void electronShell.openExternal(url).catch((e) => log("open settings failed:", e));
+    return true;
+  }
 }

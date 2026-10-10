@@ -52,6 +52,7 @@ describe("bridge payloads", () => {
     expect(readAppearance("blue")).toBeNull();
     expect(readEventName("navigate")).toBe("navigate");
     expect(readEventName("window")).toBe("window");
+    expect(readEventName("notify-permission")).toBe("notify-permission");
     expect(readEventName("eval")).toBeNull();
     const actions = ["close", "minimize", "zoom", "fullscreen", "fill", "center", "tile-left", "tile-right"];
     expect(actions.map(readWindowAction)).toEqual(actions);

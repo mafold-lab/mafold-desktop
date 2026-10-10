@@ -53,7 +53,7 @@ export function readNotification(v: unknown): HostNotification | null {
 export const readAppearance = (v: unknown): Appearance | null => (v === "light" || v === "dark" || v === "system" ? v : null);
 
 export const readEventName = (v: unknown): HostEventName | null =>
-  v === "navigate" || v === "command" || v === "resume" || v === "daemon" || v === "window" ? v : null;
+  v === "navigate" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" ? v : null;
 
 export const readWindowAction = (v: unknown): WindowAction | null =>
   typeof v === "string" && (WINDOW_ACTIONS as readonly string[]).includes(v) ? (v as WindowAction) : null;

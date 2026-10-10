@@ -7,6 +7,33 @@ import { clip, RateLimit, uniqueName } from "../src/main/limits";
 import { badgePng, badgeText, encodePng, renderBadge } from "../src/main/png";
 import { fit, MIN_SIZE, minSizeFor } from "../src/main/windowState";
 import { arrangedBounds, capsFor, NATIVE_TRAFFIC_POSITION, TRAFFIC_PILL } from "../src/main/chrome";
+import { notifySettingsUrl, parsePermission } from "../src/main/notifyPermission";
+import { APP_ID } from "../src/main/config";
+
+describe("notification permission", () => {
+  it("reads back only what it wrote; anything else is unknown", () => {
+    expect(parsePermission(JSON.stringify({ permission: "blocked" }))).toBe("blocked");
+    expect(parsePermission(JSON.stringify({ permission: "allowed" }))).toBe("allowed");
+    expect(parsePermission(JSON.stringify({ permission: "granted" }))).toBe("unknown");
+    expect(parsePermission("null")).toBe("unknown");
+    expect(parsePermission("{not json")).toBe("unknown");
+    expect(parsePermission(null)).toBe("unknown");
+  });
+  it("opens Mafold's own page of the system's notification settings", () => {
+    expect(notifySettingsUrl("macos", "26.2", APP_ID)).toBe(
+      "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.mafold.desktop",
+    );
+    expect(notifySettingsUrl("macos", "13.0", APP_ID)).toContain("com.apple.Notifications-Settings.extension");
+    // Monterey still has System Preferences and its pane id.
+    expect(notifySettingsUrl("macos", "12.7.6", APP_ID)).toBe("x-apple.systempreferences:com.apple.preference.notifications?id=com.mafold.desktop");
+    expect(notifySettingsUrl("windows", "10.0.26100", APP_ID)).toBe("ms-settings:notifications");
+    expect(notifySettingsUrl("linux", "6.8", APP_ID)).toBeNull();
+  });
+  it("is offered on every OS the shell ships for", () => {
+    expect(capsFor("macos")).toContain("notify-settings");
+    expect(capsFor("windows")).toContain("notify-settings");
+  });
+});
 
 describe("resolveConfig", () => {
   it("ignores the environment entirely when packaged", () => {

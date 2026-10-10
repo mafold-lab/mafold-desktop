@@ -26,6 +26,10 @@ export interface ShellConfig {
   } | null;
 }
 
+/** The app's identity with the OS: the macOS bundle id and the Windows
+ *  AppUserModelID (electron-builder.yml `appId`). */
+export const APP_ID = "com.mafold.desktop";
+
 export const PRODUCTION: Omit<ShellConfig, "test"> = {
   webOrigin: "https://mafold.com",
   startUrl: "https://mafold.com/app",

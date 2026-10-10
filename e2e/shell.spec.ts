@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -17,6 +18,8 @@ type TestHooks = {
   trayLabels(): string[];
   unread(): { total: number };
   notificationsShown(): number;
+  notifyPermission(): string;
+  sawNotifyPermission(p: string): void;
   pendingAuth(): number;
 };
 const hooks = (l: Launched) => ({
@@ -112,6 +115,69 @@ test("unread reaches the tray; a deep link reaches the page", async () => {
 
   await l.app.evaluate((_e, url) => (globalThis as unknown as { __mafoldTest: TestHooks }).__mafoldTest.deepLink(url), `mafold://app#${CONV}`);
   await expect.poll(() => l.page.evaluate(() => (window as unknown as { __events: unknown[] }).__events)).toContainEqual(["navigate", `#${CONV}`]);
+});
+
+// Why the web's "Web push" row did nothing in the app: the page sees a service
+// worker, PushManager and a granted permission — every check a browser passes —
+// but Electron has no push service (ElectronBrowserContext::
+// GetPushMessagingService returns null), so subscribing always fails.
+test("Web Push cannot subscribe inside the shell, so the page must not offer it", async () => {
+  const { publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const jwk = publicKey.export({ format: "jwk" }) as { x: string; y: string };
+  const raw = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]);
+  const probe = await l.page.evaluate(async (key) => {
+    const r: Record<string, unknown> = {
+      pushManager: "PushManager" in window,
+      serviceWorker: "serviceWorker" in navigator,
+      secure: window.isSecureContext,
+      permission: await Notification.requestPermission(),
+    };
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    await navigator.serviceWorker.ready;
+    try {
+      const bytes = Uint8Array.from(atob(key), (c) => c.charCodeAt(0));
+      await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+      r.subscribed = true;
+    } catch (e) {
+      r.subscribed = false;
+      r.error = `${(e as Error).name}: ${(e as Error).message}`;
+    }
+    return r;
+  }, raw.toString("base64"));
+  console.log("web push probe:", JSON.stringify(probe));
+  expect(probe).toMatchObject({ pushManager: true, serviceWorker: true, secure: true, permission: "granted", subscribed: false });
+  expect(String(probe.error)).toMatch(/AbortError|push service/i);
+});
+
+test("notify-settings: the page hears what the shell saw, and it survives a restart", async () => {
+  type N = { permission(): Promise<string>; test(): Promise<string>; openSettings(): void };
+  expect(await l.page.evaluate(() => {
+    const h = (window as unknown as { mafoldHost: { caps: string[]; notifications?: unknown } }).mafoldHost;
+    return h.caps.includes("notify-settings") && typeof h.notifications === "object";
+  })).toBe(true);
+  const permission = () => l.page.evaluate(() => (window as unknown as { mafoldHost: { notifications: N } }).mafoldHost.notifications.permission());
+
+  // Nothing shown yet on a fresh profile.
+  expect(await permission()).toBe("unknown");
+
+  // A test notification settles to one of the three (xvfb has no notification
+  // server, so which one depends on the runner) — it never hangs the page.
+  const tested = await l.page.evaluate(() => (window as unknown as { mafoldHost: { notifications: N } }).mafoldHost.notifications.test());
+  expect(["allowed", "blocked", "unknown"]).toContain(tested);
+
+  // The system refused one: the page is told, and asking agrees.
+  const h = hooks(l);
+  await l.app.evaluate(() => (globalThis as unknown as { __mafoldTest: TestHooks }).__mafoldTest.sawNotifyPermission("blocked"));
+  await expect.poll(() => l.page.evaluate(() => (window as unknown as { __events: unknown[] }).__events)).toContainEqual(["notify-permission", "blocked"]);
+  expect(await permission()).toBe("blocked");
+  expect(await h.call((x) => x.notifyPermission())).toBe("blocked");
+
+  // Kept across launches: a blocked app says so before the next message is lost.
+  const userData = l.dirs.userData;
+  await l.app.close();
+  l = await launch(origins.web, origins.api, { MAFOLD_DESKTOP_USER_DATA: userData });
+  await l.page.waitForSelector("#h");
+  expect(await permission()).toBe("blocked");
 });
 
 test("menu shortcuts reach the page as commands", async () => {

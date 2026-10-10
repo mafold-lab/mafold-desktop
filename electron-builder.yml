@@ -50,8 +50,18 @@ mac:
   icon: build/icon-mac.png
   hardenedRuntime: true
   gatekeeperAssess: false
+  # The app claims the passkey keychain group (src/main/webauthn.ts) — a
+  # restricted entitlement, authorised by the Developer ID profile embedded
+  # next to it. The helpers get the plain set: no profile, nothing restricted.
+  # The profile names the one certificate allowed to sign (serial
+  # 1E54ECA2B6577088, expires 2027-02-01): a new signing cert means a new
+  # profile, or every build is refused at launch.
+  # An ad-hoc local build (-c.mac.identity=-) can't use the profile: point
+  # `entitlements` at the inherit plist too and leave the profile out (that
+  # build has no passkeys).
   entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  provisioningProfile: build/Mafold_Desktop_DeveloperID.provisionprofile
   # The bundled cli is already Developer ID–signed by its own release, with the
   # fixed identifier com.mafold.cli that macOS keys Full Disk Access grants on.
   # Re-signing it with the app's identity would make every user grant it again.

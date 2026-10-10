@@ -2,11 +2,26 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
   <dict>
+    <!-- The app itself. Its helpers get entitlements.mac.inherit.plist: they
+         are separate bundles with no provisioning profile, and a restricted
+         entitlement on them would stop them launching. -->
     <!-- V8 compiles JavaScript at runtime. -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
     <!-- Dictation (mafold-web lib/dictate.ts) records from the microphone. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!-- Passkeys with Touch ID (src/main/webauthn.ts). Restricted: macOS honours
+         these only because Mafold_Desktop_DeveloperID.provisionprofile (embedded
+         at signing) authorises them, and refuses to launch an app that claims
+         them without it. An ad-hoc build must sign with the inherit plist. -->
+    <key>com.apple.application-identifier</key>
+    <string>UGZPUZZYDD.com.mafold.desktop</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>UGZPUZZYDD</string>
+    <key>keychain-access-groups</key>
+    <array>
+      <string>UGZPUZZYDD.com.mafold.desktop.webauthn</string>
+    </array>
   </dict>
 </plist>

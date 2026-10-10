@@ -5,12 +5,13 @@
 import { ipcMain, nativeTheme, screen, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import { arrangedBounds } from "./chrome";
 
+import { RateLimit } from "./limits";
 import { log } from "./log";
-import { showNotification } from "./notify";
+import { notifyPermission, openNotifySettings, showNotification, testNotification } from "./notify";
 import { originOf } from "./policy";
 import type { Shell } from "./shell";
 import { readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, sameUnread } from "./validate";
-import { IPC, type DaemonEnableResult, type DaemonStatus, type OAuthResult } from "../shared/desktopHost.generated";
+import { IPC, type DaemonEnableResult, type DaemonStatus, type NotifyPermission, type OAuthResult } from "../shared/desktopHost.generated";
 import type { DaemonManager } from "./daemon/manager";
 import { isUsername } from "./daemon/model";
 
@@ -67,6 +68,18 @@ export function registerBridge(
     const n = readNotification(v);
     if (n) showNotification(shell, n, os);
   });
+
+  // Whether the system shows them (notify.ts): what the shell has seen, a test
+  // notification in its own words (one every two seconds at most), and the
+  // system's settings pane for Mafold.
+  const tests = new RateLimit(2000);
+  handle<NotifyPermission>(IPC.notifyPermission, () => notifyPermission(), "unknown");
+  handle<NotifyPermission>(
+    IPC.notifyTest,
+    () => (tests.allow("test", Date.now()) ? testNotification(shell, os) : notifyPermission()),
+    "unknown",
+  );
+  on(IPC.notifySettings, () => openNotifySettings(shell, os, process.getSystemVersion()));
 
   on(IPC.openExternal, (_e, url) => {
     if (typeof url === "string" && url.length <= 8192) shell.openExternal(url, "page");

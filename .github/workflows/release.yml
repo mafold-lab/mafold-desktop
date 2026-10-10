@@ -101,6 +101,36 @@ jobs:
             echo "$V" | grep -q 'source=Notarized Developer ID' || { echo "::error::Gatekeeper does not accept $app as notarized"; exit 1; }
             xcrun stapler validate "$app"
           done
+      # Passkeys (src/main/webauthn.ts) need the keychain group on the app, and
+      # that entitlement is restricted: without the embedded profile allowing it
+      # macOS kills the app at launch — a release nobody can open. So: profile
+      # in, group claimed, helpers clean, and the app actually starts.
+      - name: Passkey entitlement authorised, and the app launches
+        run: |
+          set -euo pipefail
+          GROUP=UGZPUZZYDD.com.mafold.desktop.webauthn
+          for app in release/mac*/Mafold.app; do
+            [ -f "$app/Contents/embedded.provisionprofile" ] || { echo "::error::$app has no embedded provisioning profile"; exit 1; }
+            security cms -D -i "$app/Contents/embedded.provisionprofile" | grep -q '<string>UGZPUZZYDD\.\*</string>' || { echo "::error::the profile in $app does not allow the UGZPUZZYDD.* keychain groups"; exit 1; }
+            codesign -d --entitlements - --xml "$app" 2>/dev/null | grep -q "$GROUP" || { echo "::error::$app does not claim $GROUP"; exit 1; }
+            for helper in "$app"/Contents/Frameworks/*Helper*.app; do
+              if codesign -d --entitlements - --xml "$helper" 2>/dev/null | grep -q keychain-access-groups; then echo "::error::$helper claims a keychain group (it has no profile)"; exit 1; fi
+            done
+          done
+          # Launch the one this runner can run natively, in its own profile dir.
+          APP="release/mac-$(uname -m)/Mafold.app"
+          [ "$(uname -m)" = x86_64 ] && APP=release/mac/Mafold.app
+          "$APP/Contents/MacOS/Mafold" --user-data-dir="$RUNNER_TEMP/launch-check" > "$RUNNER_TEMP/launch-check.log" 2>&1 &
+          PID=$!
+          sleep 15
+          if kill -0 "$PID" 2>/dev/null; then
+            kill "$PID"
+            echo "$APP launched ✓"
+          else
+            STATUS=0; wait "$PID" || STATUS=$?
+            cat "$RUNNER_TEMP/launch-check.log" || true
+            echo "::error::$APP exited at launch (status $STATUS) — is the profile authorising its entitlements?"; exit 1
+          fi
       - name: The bundled cli kept its own signature
         run: |
           for app in release/mac*/Mafold.app; do

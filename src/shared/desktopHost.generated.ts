@@ -20,7 +20,14 @@ export const HOST_CAPS = [
   // `setUnread` drives the dock/taskbar badge and the tray's unread list.
   "badge",
   // `notify` shows an OS notification; a click focuses the window and navigates.
+  // A page that sees it never offers Web Push: notifications in the app are the
+  // shell's, and Electron has no push service (`pushManager.subscribe` always
+  // rejects there).
   "notify",
+  // `notify-settings` — `notifications`: whether the system lets the app show
+  // notifications as far as the shell has seen, a test notification, and the
+  // system's notification settings for the app (where a blocked app is allowed).
+  "notify-settings",
   // `on("navigate")` — deep links, notification clicks, tray rows.
   "navigate",
   // `on("command")` — the native menu's shortcuts (⌘N, ⌘K, …).
@@ -78,6 +85,14 @@ export interface HostNotification {
   silent: boolean;
 }
 
+/**
+ * Whether the system lets the app show notifications. There is no system call
+ * for it the shell can make, so this is what it has SEEN: the last notification
+ * it showed (`allowed`) or the system refused (`blocked`). `unknown` until then,
+ * and again after it opened the system's settings, where it may have changed.
+ */
+export type NotifyPermission = "allowed" | "blocked" | "unknown";
+
 export type HostCommand =
   | "new-chat"
   | "quick-switcher"
@@ -102,7 +117,7 @@ export interface OAuthResult {
   error?: string;
 }
 
-export type HostEventName = "navigate" | "command" | "resume" | "daemon" | "window";
+export type HostEventName = "navigate" | "command" | "resume" | "daemon" | "window" | "notify-permission";
 
 /** The window, as the page needs to draw its own controls. In full screen
  *  macOS hides the window's chrome, and the page hides its lights with it. */
@@ -178,6 +193,8 @@ export interface MafoldHost {
   on(ev: "resume", cb: () => void): () => void;
   on(ev: "daemon", cb: (s: DaemonStatus) => void): () => void;
   on(ev: "window", cb: (s: WindowState) => void): () => void;
+  /** `notify-settings`: what the shell has seen changed. */
+  on(ev: "notify-permission", cb: (p: NotifyPermission) => void): () => void;
   /** The page is (true) / is no longer (false) drawing the window's lights;
    *  the shell hides / shows the system's own accordingly. */
   setWindowControls(drawn: boolean): void;
@@ -185,6 +202,15 @@ export interface MafoldHost {
   autostart: {
     get(): Promise<boolean>;
     set(on: boolean): Promise<void>;
+  };
+  /** `notify-settings` only — check the cap; an older shell has no such object. */
+  notifications?: {
+    permission(): Promise<NotifyPermission>;
+    /** Show a test notification, in the shell's own words, and resolve with
+     *  what the system said to it (`unknown`: it said nothing in time). */
+    test(): Promise<NotifyPermission>;
+    /** The system's notification settings for this app. */
+    openSettings(): void;
   };
   /** Run bots on this computer. `enable` / `disable` ask the person first in a
    *  native dialog the page cannot answer. */
@@ -207,6 +233,9 @@ export const DEEP_LINK_SCHEME = "mafold";
 export const IPC = {
   setUnread: "mafold-host:set-unread",
   notify: "mafold-host:notify",
+  notifyPermission: "mafold-host:notify-permission",
+  notifyTest: "mafold-host:notify-test",
+  notifySettings: "mafold-host:notify-settings",
   openExternal: "mafold-host:open-external",
   oauth: "mafold-host:oauth",
   setLocale: "mafold-host:set-locale",

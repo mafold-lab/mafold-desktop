@@ -26,6 +26,12 @@ const html = (body: string) => `<!doctype html><html><head><meta charset="utf-8"
 export async function startOrigins(): Promise<Origins> {
   let apiOrigin = "";
   const web = createServer((req, res) => {
+    // A do-nothing service worker, for the Web Push probe (shell.spec.ts).
+    if (req.url === "/sw.js") {
+      res.writeHead(200, { "content-type": "text/javascript" });
+      res.end("self.addEventListener('push', () => {});");
+      return;
+    }
     if (req.url?.startsWith("/app")) {
       res.writeHead(200, { "content-type": "text/html" });
       res.end(
@@ -47,6 +53,7 @@ export async function startOrigins(): Promise<Origins> {
     mafoldHost.on("navigate", (h) => window.__events.push(["navigate", h]));
     mafoldHost.on("command", (c) => window.__events.push(["command", c]));
     mafoldHost.on("daemon", (s) => window.__daemon.push(s));
+    if (mafoldHost.caps.includes("notify-settings")) mafoldHost.on("notify-permission", (p) => window.__events.push(["notify-permission", p]));
   }
 </script>`),
       );

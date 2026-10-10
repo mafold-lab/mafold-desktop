@@ -35,7 +35,7 @@ src/main/      the main process — window, security, bridge, tray, menu, …
 src/preload/   the page-side half of mafoldHost (bundled into one file)
 static/        offline page; strings.json (generated: the desktop.* langpack keys)
 resources/     tray and window icons, shipped as real files
-build/         app icons, macOS entitlements
+build/         app icons, macOS entitlements (app / helpers), the Developer ID profile
 test/          unit tests (vitest, plain node)
 e2e/           a real Electron window against local fixture origins (Playwright)
 ```
@@ -82,6 +82,14 @@ repo `mafold-lab/mafold-desktop` and tags `vX.Y.Z` → that repo's
 runners:
 
 - **macOS**: dmg + zip, arm64 and x64 in one run, Developer ID + notarized.
+  The app (not its helpers) claims the passkey keychain group
+  `UGZPUZZYDD.com.mafold.desktop.webauthn` (`src/main/webauthn.ts`), a
+  restricted entitlement authorised by `build/Mafold_Desktop_DeveloperID.provisionprofile`
+  (App Store Connect profile "Mafold Desktop Developer ID", MAC_APP_DIRECT,
+  bundle id `com.mafold.desktop`). The profile names the signing certificate
+  (serial `1E54ECA2B6577088`, expires 2027-02-01): a new certificate needs a new
+  profile, or macOS refuses to launch the build — the release job checks that
+  the app starts.
 - **Windows**: per-user NSIS installer, x64, not code-signed.
 - Uploads to `cdn.mafold.com/desktop/stable/` (the update feed and the
   `/download` page's fixed names) and a GitHub Release there.
