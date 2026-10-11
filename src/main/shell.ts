@@ -23,6 +23,7 @@ export class Shell {
   private externalLimit = new RateLimit(1000);
   private subscribed = new Set<HostEventName>();
   private queuedNavigate: string | null = null;
+  private leaving = false;
   private listeners = new Set<() => void>();
 
   constructor(
@@ -69,26 +70,46 @@ export class Shell {
   subscribe(name: HostEventName): void {
     this.subscribed.add(name);
     for (const fn of this.subscribeHooks) fn(name);
-    if (name === "navigate" && this.queuedNavigate) {
-      const hash = this.queuedNavigate;
-      this.queuedNavigate = null;
-      this.send({ name: "navigate", payload: hash });
-    }
+    if (name === "navigate") this.deliverHeldNavigate();
+  }
+
+  private deliverHeldNavigate(): void {
+    if (!this.queuedNavigate || !this.subscribed.has("navigate")) return;
+    const hash = this.queuedNavigate;
+    this.queuedNavigate = null;
+    this.send({ name: "navigate", payload: hash });
   }
 
   /** A new document in the main window: its subscriptions start from nothing. */
   resetSubscriptions(): void {
     this.subscribed.clear();
+    this.leaving = false;
+  }
+
+  /** The main window started loading another document. Until it is known
+   *  whether one replaces the page (`resetSubscriptions`) or not (`stayed`), a
+   *  `navigate` is held rather than handed to a page that may be on its way out. */
+  leavingDocument(): void {
+    this.leaving = true;
+  }
+
+  /** That navigation ended without replacing the page — a download, a link
+   *  handed to the browser or refused: the page is still here, still listening. */
+  stayed(): void {
+    if (!this.leaving) return;
+    this.leaving = false;
+    this.deliverHeldNavigate();
   }
 
   /**
    * Tell the page. A `navigate` that arrives before the page listens (a deep
-   * link that launched the app) is held — only the latest one, since a person
-   * clicking two links wants the second. Commands and resumes are moments, not
-   * state: if nobody listens they are dropped rather than replayed late.
+   * link that launched the app), or while it may be leaving, is held — only the
+   * latest one, since a person clicking two links wants the second. Commands
+   * and resumes are moments, not state: if nobody listens they are dropped
+   * rather than replayed late.
    */
   emit(name: HostEventName, payload?: string): void {
-    if (!this.subscribed.has(name)) {
+    if (!this.subscribed.has(name) || (name === "navigate" && this.leaving)) {
       if (name === "navigate" && payload) this.queuedNavigate = payload;
       return;
     }

@@ -22,7 +22,9 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    # `live/v*` = the monorepo release train taking a held draft live (go-live
+    # below). `v*` does not match it (a pattern's `*` stops at `/`).
+    tags: ["v*", "live/v*"]
 
 permissions:
   contents: write
@@ -32,6 +34,7 @@ env:
 
 jobs:
   build-mac:
+    if: ${{ !startsWith(github.ref_name, 'live/') }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,10 +42,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # A train rehearsal (`v<X.Y.Z>-dry.<n>`) builds the version in package.json.
       - name: Tag == package.json version
         run: |
           V="$(node -p 'require("./package.json").version')"
-          [ "v$V" = "$TAG" ] || { echo "::error::tag $TAG != package.json $V"; exit 1; }
+          [ "v$V" = "${TAG%%-dry.*}" ] || { echo "::error::tag $TAG != package.json $V"; exit 1; }
       - run: npm ci
       - name: Bundled mafold-cli (pinned, checksummed, must answer status --json)
         run: node scripts/fetch-cli.mjs --mac --check
@@ -149,6 +153,7 @@ jobs:
           if-no-files-found: error
 
   build-win:
+    if: ${{ !startsWith(github.ref_name, 'live/') }}
     runs-on: windows-latest
     defaults:
       run:
@@ -179,12 +184,79 @@ jobs:
 
   publish:
     needs: [build-mac, build-win]
+    if: ${{ !startsWith(github.ref_name, 'live/') }}
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: out
           merge-multiple: true
+
+      # The monorepo's release train mirrors its tag ANNOTATED with
+      # `release-train: hold` (and rehearses under `v<X.Y.Z>-dry.<n>`): then
+      # NOTHING reaches R2 here — the build lands in a complete DRAFT release,
+      # and the train pushes `live/v<X.Y.Z>` once the api is green, which runs
+      # `go-live` below. Nothing at all for a rehearsal: it rebuilds a version
+      # that may already be out, and its new bytes under the old file names
+      # would break every updater's sha512 check. A plain tag (every hand
+      # release) publishes here, as before.
+      - name: Held by the release train?
+        id: hold
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          held=false
+          ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '"\(.object.type) \(.object.sha)"')
+          if [ "${ref%% *}" = tag ] \
+             && gh api "repos/$GITHUB_REPOSITORY/git/tags/${ref#* }" --jq .message | grep -qx 'release-train: hold'; then
+            held=true
+          fi
+          case "$TAG" in *-dry.*) held=true ;; esac
+          echo "held=$held" >> "$GITHUB_OUTPUT"
+          [ "$held" = true ] && echo "::notice::$TAG is held by the release train — a draft release, nothing on R2" || true
+
+      - name: Upload to R2 (cdn.mafold.com/desktop/stable/)
+        if: steps.hold.outputs.held != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: bash scripts/r2-publish.sh out "${TAG#v}"
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HELD: ${{ steps.hold.outputs.held }}
+        # A block scalar, not a plain one: the notes' "Download: https…" is a
+        # `key: value` to YAML, and GitHub rejected the whole file over it.
+        run: |
+          draft=""; [ "$HELD" = true ] && draft="--draft"
+          gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --title "Mafold ${TAG#v}" $draft \
+            --notes "Mafold for macOS and Windows ${TAG#v}. Download: https://mafold.com/download"
+
+  # The train's switch for a held release: `live/v<X.Y.Z>` pushed by the
+  # monorepo once the api is green. Takes the files from the draft (exactly what
+  # was built and signed), puts them on R2 in the safe order, then publishes the
+  # release, and drops the trigger tag.
+  go-live:
+    if: startsWith(github.ref_name, 'live/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The held draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          REL="${TAG#live/}"
+          [ "$(gh release view "$REL" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true ] \
+            || { echo "::error::$REL is not a held draft — nothing to take live"; exit 1; }
+          gh release download "$REL" --repo "$GITHUB_REPOSITORY" --dir out
+          ls -l out
       - name: Upload to R2 (cdn.mafold.com/desktop/stable/)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -192,29 +264,11 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: |
-          set -euo pipefail
-          [ -n "${AWS_ACCESS_KEY_ID:-}" ] || { echo "::error::R2 secrets are not set on this repo"; exit 1; }
-          EP="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-          DEST="s3://${R2_BUCKET}/desktop/stable"
-          V="${TAG#v}"
-          put() { aws s3 cp --endpoint-url "$EP" --only-show-errors --cache-control "$3" "$1" "$DEST/$2"; }
-          cd out
-          # 1. The versioned files — immutable.
-          for f in *.dmg *.zip *.blockmap *.exe; do put "$f" "$f" "public, max-age=31536000, immutable"; done
-          # 2. Fixed names for the download page — always this release.
-          put "Mafold-$V-arm64.dmg" "Mafold-mac-arm64.dmg" "no-cache"
-          put "Mafold-$V-x64.dmg"   "Mafold-mac-x64.dmg"   "no-cache"
-          put "Mafold-Setup-$V.exe" "Mafold-Setup.exe"     "no-cache"
-          # 3. The update feeds LAST: an app must never be told about a file
-          #    that is not there yet.
-          put latest-mac.yml latest-mac.yml "no-cache"
-          put latest.yml     latest.yml     "no-cache"
-      - name: GitHub Release
+        run: bash scripts/r2-publish.sh out "${TAG#live/v}"
+      - name: Publish the release, drop the trigger tag
         env:
           GH_TOKEN: ${{ github.token }}
-        # A block scalar, not a plain one: the notes' "Download: https…" is a
-        # `key: value` to YAML, and GitHub rejected the whole file over it.
         run: |
-          gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --title "Mafold ${TAG#v}" \
-            --notes "Mafold for macOS and Windows ${TAG#v}. Download: https://mafold.com/download"
+          set -euo pipefail
+          gh release edit "${TAG#live/}" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG"

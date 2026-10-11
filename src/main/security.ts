@@ -87,15 +87,17 @@ export function guardMainNavigation(contents: WebContents, shell: Shell, offline
       case "download":
         e.preventDefault();
         contents.downloadURL(url);
-        return;
+        break;
       case "external":
         e.preventDefault();
         shell.openExternal(url, "navigate");
-        return;
+        break;
       default:
         e.preventDefault();
         log("refused navigation:", redact(url));
     }
+    // Cancelled: the page stays where it was (window.ts).
+    shell.stayed();
   };
   contents.on("will-navigate", (e) => handle(e, e.url));
   contents.on("will-redirect", (e) => {

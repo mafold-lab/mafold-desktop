@@ -33,10 +33,10 @@ export async function startOrigins(): Promise<Origins> {
       return;
     }
     if (req.url?.startsWith("/app")) {
-      res.writeHead(200, { "content-type": "text/html" });
-      res.end(
-        html(`
+      const page = html(`
 <h1 id="h">fixture app</h1>
+<!-- The shape of every file's ↓ in the web app (the media viewer's included):
+     a plain link to an api download, no target. -->
 <a id="dl" href="${apiOrigin}/download/report.txt">download</a>
 <a id="ext" href="${apiOrigin}/elsewhere">elsewhere</a>
 <iframe id="card" sandbox="allow-scripts" srcdoc="<script>let r={};try{r.parent=typeof parent.mafoldHost}catch(e){r.parent='blocked'};r.self=typeof window.mafoldHost;parent.postMessage({card:r},'*')</script>"></iframe>
@@ -49,14 +49,20 @@ export async function startOrigins(): Promise<Origins> {
     if (e.data && e.data.xo) window.__frames.xo = e.data.xo;
   });
   window.__daemon = [];
-  if (window.mafoldHost) {
+  // \`?quiet\`: a page that listens to nothing until told to.
+  window.__listen = () => {
     mafoldHost.on("navigate", (h) => window.__events.push(["navigate", h]));
     mafoldHost.on("command", (c) => window.__events.push(["command", c]));
     mafoldHost.on("daemon", (s) => window.__daemon.push(s));
     if (mafoldHost.caps.includes("notify-settings")) mafoldHost.on("notify-permission", (p) => window.__events.push(["notify-permission", p]));
-  }
-</script>`),
-      );
+  };
+  if (window.mafoldHost && !location.search.includes("quiet")) window.__listen();
+</script>`);
+      // `?slow`: a page that takes a while to arrive (document.spec.ts).
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(page);
+      }, req.url.includes("slow") ? 1500 : 0);
       return;
     }
     res.writeHead(404).end();
@@ -94,7 +100,7 @@ export interface Launched {
   external(): string[];
 }
 
-export async function launch(web: string, api: string, extraEnv: Record<string, string> = {}): Promise<Launched> {
+export async function launch(web: string, api: string, extraEnv: Record<string, string> = {}, extraArgs: string[] = []): Promise<Launched> {
   const root = mkdtempSync(join(tmpdir(), "mafold-desktop-e2e-"));
   const dirs = {
     root,
@@ -106,7 +112,7 @@ export async function launch(web: string, api: string, extraEnv: Record<string, 
     fakeState: join(root, "fake-mafold.json"),
   };
   const app = await _electron.launch({
-    args: [join(__dirname, ".."), ...(process.platform === "linux" ? ["--no-sandbox"] : [])],
+    args: [join(__dirname, ".."), ...(process.platform === "linux" ? ["--no-sandbox"] : []), ...extraArgs],
     env: {
       ...process.env,
       MAFOLD_DESKTOP_TEST: "1",

@@ -27,7 +27,7 @@ import { Shell } from "./shell";
 import { createTray, refreshTray, trayLabels } from "./tray";
 import { initUpdater } from "./updater";
 import { createMainWindow } from "./window";
-import { DEEP_LINK_SCHEME } from "../shared/desktopHost.generated";
+import { DEEP_LINK_SCHEME, type HostEventName } from "../shared/desktopHost.generated";
 
 const os = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux";
 const cfg = resolveConfig(process.env, app.isPackaged);
@@ -194,6 +194,9 @@ if (!app.requestSingleInstanceLock()) {
         // server under xvfb to refuse or show one.
         sawNotifyPermission: (p: "allowed" | "blocked" | "unknown") => saw(s, p),
         pendingAuth: () => s.pending.size,
+        // What the shell believes the page listens to, and one event through it.
+        subscribed: (name: HostEventName) => s.isSubscribed(name),
+        emit: (name: HostEventName, payload?: string) => s.emit(name, payload),
         language: () => s.strings.language,
       };
     }

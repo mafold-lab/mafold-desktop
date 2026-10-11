@@ -62,11 +62,28 @@ export function createMainWindow(shell: Shell, opts: { startHidden: boolean; os:
   // keep them. Nor has it drawn any lights yet: the system's come back until
   // it says it has (bridge.ts `setWindowControls`), so a page that never does
   // — the offline page, a slow load — still has a way to close the window.
-  win.webContents.on("did-start-navigation", (e) => {
-    if (!e.isMainFrame || e.isSameDocument) return;
+  //
+  // New means COMMITTED (`did-navigate`, main frame, never same-document), not
+  // started. A navigation that only starts leaves the page in place, drawing
+  // its lights and listening: a file's download link (the media viewer's ↓,
+  // which the shell turns into a download), a link it hands to the browser or
+  // refuses (security.ts). Treating those as new put the system's lights back
+  // on top of the page's — two sets — and dropped every event the page had
+  // subscribed to (deep links, commands, resume) until it reloaded.
+  //
+  // Between the start and the outcome the page may be on its way out, so a
+  // deep link is held (shell.ts `leavingDocument`) for whichever page listens
+  // next. The shell's own guard settles a download or a hand-off on the spot
+  // (security.ts); loading that stops without a new document settles the rest.
+  const newDocument = () => {
     shell.resetSubscriptions();
-    if (mac) win.setWindowButtonVisibility(true);
+    if (mac && !win.isDestroyed()) win.setWindowButtonVisibility(true);
+  };
+  win.webContents.on("did-start-navigation", (e) => {
+    if (e.isMainFrame && !e.isSameDocument) shell.leavingDocument();
   });
+  win.webContents.on("did-navigate", newDocument);
+  win.webContents.on("did-stop-loading", () => shell.stayed());
 
   // In full screen macOS hides the window's chrome; the page hides its lights
   // with it, and the system's (which full screen reveals at the top) take over.
@@ -97,6 +114,8 @@ export function createMainWindow(shell: Shell, opts: { startHidden: boolean; os:
 
   win.webContents.on("render-process-gone", (_e, details) => {
     log("renderer gone:", details.reason);
+    // The document died with its renderer: nothing draws the lights now.
+    newDocument();
     if (details.reason === "clean-exit") return;
     setTimeout(() => {
       if (!win.isDestroyed()) win.webContents.reload();
