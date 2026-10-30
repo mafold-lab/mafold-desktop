@@ -1,0 +1,105 @@
+# THIS FILE RUNS IN THE PUBLIC REPO mafold-lab/mafold-desktop, not in the monorepo.
+#
+# .github/workflows/desktop-tests.yml (monorepo) copies it in as the only
+# workflow of the tree it pushes to the public branch `pr-test/<PR>`: the desktop
+# shell's tests for one monorepo PR — typecheck, unit tests, build, and the e2e
+# suite driving a real Electron window — on Linux, macOS and Windows. GitHub's
+# standard runners are free on a public repo; in the monorepo this ran on a
+# paid Linux box only.
+#
+# The tree is what every release mirrors here anyway: mafold-desktop/ as the
+# root, with the generated contract copy and strings snapshot already in it
+# (scripts/sync-shared.mjs and strings.mjs keep those when ../client-shared is
+# not there).
+name: desktop pr tests
+
+on:
+  push:
+    branches: ["pr-test/**"]
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40 # 30 until 10-31; the phone-width shots add ~10 on macOS
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build
+        run: node scripts/build.mjs
+
+      - name: System libraries for Electron + a virtual display
+        if: runner.os == 'Linux'
+        run: |
+          npx playwright install-deps chromium
+          sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: E2E (real Electron window under xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npx playwright test
+
+      # The phone-width shots (e2e/phoneWidth.spec.ts) put a 1440×900 window on
+      # the screen; a Windows runner's session may come up at 1024×768. And a
+      # screen recorder for its resize recording (gdigrab), if the image has
+      # none. Both best effort: the spec notes what it got.
+      - name: Screen for the phone-width shots (Windows)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          try { Set-DisplayResolution -Width 1920 -Height 1080 -Force } catch { Write-Host "Set-DisplayResolution: $_" }
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg -y --no-progress | Select-Object -Last 3 }
+
+      # macOS and Windows hosted runners have a desktop session of their own.
+      - name: E2E (real Electron window)
+        if: runner.os == 'macOS'
+        run: npx playwright test
+
+      # SHOWN, NOT GATING, on Windows (first run, 10-24: 36 passed, 5 failed).
+      # Four daemon tests can't pass there as written: e2e/fake-mafold.cjs, the
+      # stand-in cli, is copied in as mafold.exe and Windows can't start a script
+      # by that name ("spawn UNKNOWN") — the shell itself starts the real
+      # mafold.exe. The fifth (shell.spec.ts, a third-party popup) never found
+      # the cross-origin frame: the test used it before it had committed. Fixed
+      # 10-25 (#1188, e2e/fixtures.ts apiFrame() waits for it); only the four
+      # daemon tests are left. Make this gate once they pass.
+      - name: E2E (real Electron window, Windows — shown, not gating)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: npx playwright test
+
+      # The pictures the suite took (e2e/ground.spec.ts; the phone-width shots,
+      # recording and summary.md in phone-width/) — for a person to look at.
+      - name: E2E pictures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-e2e-${{ runner.os }}
+          path: test-results
+          if-no-files-found: warn
+          retention-days: 14
