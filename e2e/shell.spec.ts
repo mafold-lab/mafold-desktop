@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { launch, startOrigins, type Launched, type Origins } from "./fixtures";
+import { apiFrame, launch, startOrigins, type Launched, type Origins } from "./fixtures";
 
 const CONV = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
@@ -54,8 +54,10 @@ test("the web origin's page gets the bridge, with its capabilities", async () =>
   });
   expect(host?.kind).toBe("desktop");
   expect(host?.caps).toEqual(expect.arrayContaining(["badge", "notify", "navigate", "commands", "oauth-external"]));
-  // The page draws the window's lights on macOS only; elsewhere the frame is the system's.
+  // The page draws the window's lights on macOS only — and there, in the phone
+  // layout, the shell's own title bar holds them; elsewhere the frame is the system's.
   expect(host?.caps.includes("window-controls")).toBe(process.platform === "darwin");
+  expect(host?.caps.includes("window-titlebar")).toBe(process.platform === "darwin");
   expect(host?.version).toMatch(/^\d+\.\d+\.\d+/);
 });
 
@@ -65,13 +67,36 @@ test("a window closed to the tray is set to stop painting and keep its timers' p
   // its priority. (What that DOES can't be watched from here: Playwright's own
   // session keeps every page it drives "visible" — focus emulation counts as a
   // capture. It was measured by hand on macOS, hidden ≥15 min; see #794.)
-  const wiring = await l.app.evaluate(({ app, BrowserWindow }) => ({
-    throttling: BrowserWindow.getAllWindows()[0].webContents.getBackgroundThrottling(),
+  // 更新胶囊 W12 也靠它:网页 lib/updatePill.ts 的 startAwayWatch 听页面的 visibilitychange 告诉脑子「进了后台」。
+  // 关了 backgroundThrottling 页面就永远 visible(Electron 文档 browser-window.md「Page visibility」),桌面就听不到
+  // 窗口藏起来 —— 藏着时不换那条规矩在桌面上就没了。钉它的只有这一条,网页那边不另钉。
+  const wiring = await l.app.evaluate(({ app }) => ({
+    throttling: (globalThis as unknown as { __mafoldTest: { page(): Electron.WebContents } }).__mafoldTest.page().getBackgroundThrottling(),
     timers: app.commandLine.hasSwitch("disable-background-timer-throttling"),
     features: app.commandLine.getSwitchValue("disable-features"),
     backgrounding: app.commandLine.hasSwitch("disable-renderer-backgrounding"),
   }));
   expect(wiring).toEqual({ throttling: true, timers: true, features: expect.stringContaining("IntensiveWakeUpThrottling"), backgrounding: true });
+});
+
+test("quitting runs the page's beforeunload first — where the composer sends the last of a draft", async () => {
+  // The window is a BaseWindow, whose own close takes the page down without its
+  // beforeunload (src/main/pageClose.ts). What the page's handler does is seen
+  // from the main process as a console line, and written to a file: the process
+  // is gone by the time the test looks.
+  await l.app.evaluate((_electron, file) => {
+    const { appendFileSync } = process.getBuiltinModule("node:fs");
+    const page = (globalThis as unknown as { __mafoldTest: { page(): Electron.WebContents } }).__mafoldTest.page();
+    page.on("console-message", (e) => {
+      if (e.message === "mafold-e2e:beforeunload") appendFileSync(file, "page\tbeforeunload\n");
+    });
+  }, l.dirs.externalLog);
+  await l.page.evaluate(() => addEventListener("beforeunload", () => console.log("mafold-e2e:beforeunload")));
+  // Playwright quits the way ⌘Q and the tray's Quit do: `app.quit()`.
+  await l.app.close();
+  expect(l.external()).toContain("page\tbeforeunload");
+  // For afterEach, which closes whatever is running.
+  l = await launch(origins.web, origins.api);
 });
 
 test("frames inside the page never see the bridge", async () => {
@@ -221,7 +246,7 @@ test("OAuth: only the state the shell issued completes, and only once", async ()
 });
 
 test("a third-party popup is a child window without the bridge, and cannot drive the shell", async () => {
-  const xo = l.page.frames().find((f) => f.url().startsWith(origins.api))!;
+  const xo = await apiFrame(l.page, origins.api);
   const [child] = await Promise.all([l.app.waitForEvent("window"), xo.evaluate((u) => window.open(u), `${origins.api}/third`)]);
   await child.waitForSelector("#third");
   expect(await child.evaluate(() => typeof (window as unknown as { mafoldHost?: unknown }).mafoldHost)).toBe("undefined");

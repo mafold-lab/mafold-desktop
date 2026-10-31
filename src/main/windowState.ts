@@ -18,14 +18,20 @@ export interface SavedWindow {
 
 /** mafold-mac's window opens at 1240×820. */
 export const DEFAULT_SIZE = { width: 1240, height: 820 };
-export const MIN_SIZE = { width: 720, height: 480 };
-/** On macOS the page draws the window's lights at the head of the chat list
- *  (chrome.ts), so the window stays at least as wide as the web's desktop
- *  breakpoint (useIsDesktop, 1024) — the layout where that list is always on
- *  screen. mafold-mac's own minimum was 940×620. */
+/** Down to a phone's width: the web's phone layout fits it. */
+export const MIN_SIZE = { width: 390, height: 480 };
+/** On macOS a page that draws the window's lights at every width — one that
+ *  does not know the shell's title bar (chrome.ts), a web older than it — has
+ *  them at the head of the chat list, so for it the window stays at least as
+ *  wide as the web's desktop breakpoint (useIsDesktop, 1024): the layout
+ *  where that list is always on screen. mafold-mac's own minimum was 940×620. */
 export const MAC_MIN_SIZE = { width: 1024, height: 620 };
 
-export const minSizeFor = (os: "macos" | "windows" | "linux") => (os === "macos" ? MAC_MIN_SIZE : MIN_SIZE);
+/** The minimum a window opens with. On macOS that is MAC_MIN_SIZE until the
+ *  page says it knows the title bar (frame.ts lowers it then) — unless the
+ *  window was left narrower than that, which only a page that knew it allowed. */
+export const minSizeFor = (os: "macos" | "windows" | "linux", saved: SavedWindow | null = null) =>
+  os !== "macos" || (saved && saved.bounds.width < MAC_MIN_SIZE.width) ? MIN_SIZE : MAC_MIN_SIZE;
 
 const isBounds = (b: unknown): b is Bounds =>
   !!b && typeof b === "object" && ["x", "y", "width", "height"].every((k) => Number.isFinite((b as Record<string, unknown>)[k]));

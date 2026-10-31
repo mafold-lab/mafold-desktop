@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { isHostCommand, readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, sameUnread } from "../src/main/validate";
+import { isHostCommand, readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread } from "../src/main/validate";
 
 const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
@@ -53,10 +53,14 @@ describe("bridge payloads", () => {
     expect(readEventName("navigate")).toBe("navigate");
     expect(readEventName("window")).toBe("window");
     expect(readEventName("notify-permission")).toBe("notify-permission");
+    // Without it a page's subscription is dropped silently (bridge.ts) and it never hears an update.
+    expect(readEventName("update")).toBe("update");
     expect(readEventName("eval")).toBeNull();
     const actions = ["close", "minimize", "zoom", "fullscreen", "fill", "center", "tile-left", "tile-right"];
     expect(actions.map(readWindowAction)).toEqual(actions);
     expect([undefined, "quit", "tile-top", "FULLSCREEN", { a: "close" }].map(readWindowAction)).toEqual([null, null, null, null, null]);
+    expect(["phone", "wide"].map(readWindowLayout)).toEqual(["phone", "wide"]);
+    expect([undefined, "", "Phone", "desktop", 1, { layout: "phone" }].map(readWindowLayout)).toEqual([null, null, null, null, null, null]);
     expect(isHostCommand("new-chat")).toBe(true);
     expect(isHostCommand("rm -rf")).toBe(false);
     expect(readLocale("zh-Hans", { a: "b" })).toEqual({ lang: "zh-Hans", strings: { a: "b" } });

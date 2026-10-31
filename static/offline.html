@@ -10,7 +10,10 @@
       body {
         display: grid; place-items: center; text-align: center;
         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-        background: Canvas; color: CanvasText; -webkit-app-region: drag;
+        background: var(--ground-light, Canvas); color: CanvasText; -webkit-app-region: drag;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: var(--ground-dark, Canvas); }
       }
       main { max-width: 360px; padding: 24px; }
       h1 { font-size: 17px; font-weight: 600; margin: 0 0 6px; }
@@ -20,6 +23,19 @@
         border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); background: transparent; color: inherit; cursor: pointer;
       }
     </style>
+    <script>
+      // The shell hands over its words, where to go back to and the app's
+      // ground in the hash (src/main/window.ts). This page is local and has no
+      // bridge.
+      let info = {};
+      try { info = JSON.parse(decodeURIComponent(location.hash.slice(1))) || {}; } catch {}
+      // The window's ground and the app's (client-shared/appGround.ts), light
+      // and dark, set before the body paints; the appearance picks one.
+      for (const scheme of ["light", "dark"]) {
+        const c = info.ground && info.ground[scheme];
+        if (typeof c === "string" && /^#[0-9a-f]{6}$/i.test(c)) document.documentElement.style.setProperty(`--ground-${scheme}`, c);
+      }
+    </script>
   </head>
   <body>
     <main>
@@ -28,10 +44,6 @@
       <button id="retry" type="button"></button>
     </main>
     <script>
-      // The shell hands over its words and where to go back to in the hash
-      // (src/main/window.ts). This page is local and has no bridge.
-      let info = {};
-      try { info = JSON.parse(decodeURIComponent(location.hash.slice(1))); } catch {}
       const target = typeof info.url === "string" && /^https?:\/\//.test(info.url) ? info.url : null;
       document.getElementById("title").textContent = info.title || "Mafold";
       document.getElementById("body").textContent = info.body || "";

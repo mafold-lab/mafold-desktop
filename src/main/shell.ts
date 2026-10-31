@@ -4,10 +4,11 @@
 // (window, tray, menu, bridge, …) don't import each other in circles.
 
 import { appendFileSync } from "node:fs";
-import { BrowserWindow, shell as electronShell } from "electron";
+import { shell as electronShell, type BaseWindow, type WebContents } from "electron";
 
 import type { ShellConfig } from "./config";
 import type { Strings } from "./i18n";
+import type { WindowFrame } from "./frame";
 import { RateLimit } from "./limits";
 import { log, redact } from "./log";
 import { PendingAuth } from "./oauth";
@@ -15,9 +16,15 @@ import { isExternalUrl } from "./policy";
 import { IPC, type HostEventEnvelope, type HostEventName, type UnreadSummary } from "../shared/desktopHost.generated";
 
 export class Shell {
-  window: BrowserWindow | null = null;
+  window: BaseWindow | null = null;
+  /** The main window's page: a view in it, not the window itself (window.ts). */
+  page: WebContents | null = null;
+  /** Where the page sits in the window; on macOS the phone layout's title bar (frame.ts). */
+  frame: WindowFrame | null = null;
   quitting = false;
   updateReady = false;
+  /** The page stopped answering (window.ts): it cannot take the update's restart. */
+  pageHung = false;
   unread: UnreadSummary = { total: 0, top: [] };
   readonly pending = new PendingAuth();
   private externalLimit = new RateLimit(1000);
@@ -53,6 +60,8 @@ export class Shell {
     if (w.isMinimized()) w.restore();
     w.show();
     w.focus();
+    // A BaseWindow does not hand the keyboard to its page by itself (window.ts).
+    if (this.page && !this.page.isDestroyed()) this.page.focus();
   }
 
   private subscribeHooks = new Set<(name: HostEventName) => void>();
@@ -73,6 +82,38 @@ export class Shell {
     if (name === "navigate") this.deliverHeldNavigate();
   }
 
+  /** The page's last listener for `name` went away: it is no longer told, and
+   *  no longer counted on (updater.ts — the update's restart goes back to the
+   *  shell). A `navigate` from now on waits for the next listener, as before
+   *  the first. */
+  unsubscribe(name: HostEventName): void {
+    if (this.subscribed.delete(name)) this.unsubscribed(name);
+  }
+
+  private unsubscribeHooks = new Set<(name: HostEventName) => void>();
+
+  /** Run `fn` whenever the page stops listening to an event — its last
+   *  listener went, or the page itself did. */
+  onUnsubscribe(fn: (name: HostEventName) => void): void {
+    this.unsubscribeHooks.add(fn);
+  }
+
+  private unsubscribed(name: HostEventName): void {
+    for (const fn of this.unsubscribeHooks) {
+      try {
+        fn(name);
+      } catch (e) {
+        log("unsubscribe hook failed:", e);
+      }
+    }
+  }
+
+  /** Another document is loading in the main window and may replace the page
+   *  (`leavingDocument`): an event sent to it now may leave with it. */
+  get pageLeaving(): boolean {
+    return this.leaving;
+  }
+
   private deliverHeldNavigate(): void {
     if (!this.queuedNavigate || !this.subscribed.has("navigate")) return;
     const hash = this.queuedNavigate;
@@ -82,8 +123,10 @@ export class Shell {
 
   /** A new document in the main window: its subscriptions start from nothing. */
   resetSubscriptions(): void {
+    const had = [...this.subscribed];
     this.subscribed.clear();
     this.leaving = false;
+    for (const name of had) this.unsubscribed(name);
   }
 
   /** The main window started loading another document. Until it is known
@@ -117,9 +160,9 @@ export class Shell {
   }
 
   private send(env: HostEventEnvelope): void {
-    const w = this.window;
-    if (!w || w.isDestroyed()) return;
-    w.webContents.send(IPC.event, env);
+    const p = this.page;
+    if (!p || p.isDestroyed()) return;
+    p.send(IPC.event, env);
   }
 
   /** Open in the system's handler — http(s), mailto, tel only, at most once a

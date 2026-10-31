@@ -14,6 +14,12 @@
 #   publish    R2 (cdn.mafold.com/desktop/stable/, what the in-app updater and
 #              the download page read) + a GitHub Release here.
 #
+# A `v<X.Y.Z>-beta.<N>` tag is a beta: the same build (electron-builder names
+# its feeds beta-mac.yml / beta.yml from the version), published by
+# scripts/r2-publish.sh to the machines that opted into beta only — never the
+# download page's files or the stable feeds — and released here as a
+# prerelease.
+#
 # Secrets on THIS repo:
 #   MACOS_CERT_P12_BASE64, MACOS_CERT_PASSWORD        Developer ID Application (team UGZPUZZYDD)
 #   MACOS_NOTARY_KEY_P8_BASE64, MACOS_NOTARY_KEY_ID, MACOS_NOTARY_ISSUER_ID   App Store Connect API key
@@ -142,6 +148,9 @@ jobs:
               codesign -dv "$cli" 2>&1 | grep -q 'Identifier=com.mafold.cli' || { echo "::error::$cli was re-signed"; exit 1; }
             done
           done
+      # The feed is latest-mac.yml for X.Y.Z, beta-mac.yml for X.Y.Z-beta.N
+      # (r2-publish.sh takes the one the version's line needs, and checks it
+      # announces this version).
       - uses: actions/upload-artifact@v4
         with:
           name: mac
@@ -150,6 +159,7 @@ jobs:
             release/*.zip
             release/*.blockmap
             release/latest-mac.yml
+            release/beta-mac.yml
           if-no-files-found: error
 
   build-win:
@@ -173,6 +183,7 @@ jobs:
         run: |
           npm run build
           npx electron-builder --win --publish never
+      # latest.yml for X.Y.Z, beta.yml for X.Y.Z-beta.N.
       - uses: actions/upload-artifact@v4
         with:
           name: win
@@ -180,6 +191,7 @@ jobs:
             release/*.exe
             release/*.blockmap
             release/latest.yml
+            release/beta.yml
           if-no-files-found: error
 
   publish:
@@ -233,10 +245,15 @@ jobs:
           HELD: ${{ steps.hold.outputs.held }}
         # A block scalar, not a plain one: the notes' "Download: https…" is a
         # `key: value` to YAML, and GitHub rejected the whole file over it.
+        # A beta is a prerelease: never this repo's "Latest".
         run: |
           draft=""; [ "$HELD" = true ] && draft="--draft"
-          gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --title "Mafold ${TAG#v}" $draft \
-            --notes "Mafold for macOS and Windows ${TAG#v}. Download: https://mafold.com/download"
+          pre=""; notes="Mafold for macOS and Windows ${TAG#v}. Download: https://mafold.com/download"
+          case "$TAG" in *-beta.*)
+            pre="--prerelease"
+            notes="Mafold for macOS and Windows ${TAG#v}, a beta: it updates only the machines that opted in. The current release: https://mafold.com/download" ;;
+          esac
+          gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --title "Mafold ${TAG#v}" $draft $pre --notes "$notes"
 
   # The train's switch for a held release: `live/v<X.Y.Z>` pushed by the
   # monorepo once the api is green. Takes the files from the draft (exactly what

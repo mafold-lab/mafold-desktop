@@ -12,8 +12,8 @@ describe("parseDeepLink", () => {
   it("refuses hashes that cannot be one", () => {
     expect(parseDeepLink("mafold://app")).toBeNull();
     expect(parseDeepLink("mafold://app#")).toBeNull();
-    // The URL parser percent-encodes whitespace; what reaches the page is inert
-    // (and the page's isAppHash decides whether it means anything).
+    // URL 解析会把空白转成 %20;到了页面也什么都不是(是不是个地方由页面读 hash 时
+    // 按 client-shared/reloadLanding.ts 的 landingFromHash 定,深链这里不判断)。
     expect(parseDeepLink("mafold://app#a b")).toEqual({ kind: "app", hash: "#a%20b" });
     expect(parseDeepLink(`mafold://app#${"x".repeat(600)}`)).toBeNull();
   });

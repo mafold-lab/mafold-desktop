@@ -148,7 +148,8 @@ export function guardSession(shell: Shell): Session {
     if ("cancel" in choice) return callback();
     const f = (k: string, vars?: Record<string, string>) => shell.strings.frozen(k, vars);
     const owner = details.frame ? electronWebContents.fromFrame(details.frame) : undefined;
-    const win = (owner && BrowserWindow.fromWebContents(owner)) || shell.window;
+    // The main window's page is a view in it (window.ts), not a BrowserWindow's own.
+    const win = owner && owner !== shell.page ? BrowserWindow.fromWebContents(owner) || shell.window : shell.window;
     const options = {
       type: "question" as const,
       message: f("desktop.passkey.pick.title"),

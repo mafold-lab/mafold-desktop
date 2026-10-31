@@ -1,12 +1,16 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 
+import { readSavedAppearance, saveAppearance } from "../src/main/appearance";
 import { resolveConfig, PRODUCTION } from "../src/main/config";
 import { Strings } from "../src/main/i18n";
 import { clip, RateLimit, uniqueName } from "../src/main/limits";
 import { badgePng, badgeText, encodePng, renderBadge } from "../src/main/png";
-import { fit, MIN_SIZE, minSizeFor } from "../src/main/windowState";
-import { arrangedBounds, capsFor, NATIVE_TRAFFIC_POSITION, TRAFFIC_PILL } from "../src/main/chrome";
+import { fit, MAC_MIN_SIZE, MIN_SIZE, minSizeFor } from "../src/main/windowState";
+import { arrangedBounds, capsFor, framePlan, NATIVE_TRAFFIC_POSITION, TITLE_BAR, TRAFFIC_PILL } from "../src/main/chrome";
 import { notifySettingsUrl, parsePermission } from "../src/main/notifyPermission";
 import { APP_ID } from "../src/main/config";
 
@@ -138,10 +142,43 @@ describe("window placement", () => {
     const r = fit({ bounds: { x: 10, y: 10, width: 100, height: 100 }, maximized: false }, screen)!;
     expect([r.width, r.height]).toEqual([MIN_SIZE.width, MIN_SIZE.height]);
   });
-  it("on macOS, never below the web's desktop breakpoint — where the lights live", () => {
-    const r = fit({ bounds: { x: 10, y: 10, width: 800, height: 500 }, maximized: false }, screen, minSizeFor("macos"))!;
-    expect([r.width, r.height]).toEqual([1024, 620]);
+  it("goes down to a phone's width", () => {
+    expect([MIN_SIZE.width, MIN_SIZE.height]).toEqual([390, 480]);
     expect(minSizeFor("windows")).toBe(MIN_SIZE);
+    expect(minSizeFor("linux")).toBe(MIN_SIZE);
+  });
+  it("on macOS, opens no narrower than the web's desktop breakpoint — until a page says it knows the title bar", () => {
+    // A window that has only ever been wide: the lights live in the chat list's head.
+    expect(minSizeFor("macos")).toBe(MAC_MIN_SIZE);
+    expect(minSizeFor("macos", { bounds: { x: 10, y: 10, width: 1240, height: 820 }, maximized: false })).toBe(MAC_MIN_SIZE);
+    // One left narrower than that: only a page that knew the bar let it get there.
+    const narrow = { bounds: { x: 10, y: 10, width: 390, height: 700 }, maximized: false };
+    expect(minSizeFor("macos", narrow)).toBe(MIN_SIZE);
+    const r = fit(narrow, screen, minSizeFor("macos", narrow))!;
+    expect([r.width, r.height]).toEqual([390, 700]);
+  });
+});
+
+describe("appearance kept across launches", () => {
+  // A userData directory of its own for each.
+  const userData = () => mkdtempSync(join(tmpdir(), "mafold-appearance-"));
+  it("reads back what it saved — each of the three", () => {
+    const dir = userData();
+    for (const mode of ["dark", "light", "system"] as const) {
+      saveAppearance(dir, mode);
+      expect(readSavedAppearance(dir)).toBe(mode);
+    }
+  });
+  it("follows the system when there is nothing saved, or nothing it can read", () => {
+    expect(readSavedAppearance(userData())).toBe("system");
+    for (const text of ["{not json", "null", "", JSON.stringify({ mode: "sepia" }), JSON.stringify({ mode: 1 })]) {
+      const dir = userData();
+      writeFileSync(join(dir, "appearance.json"), text);
+      expect(readSavedAppearance(dir)).toBe("system");
+    }
+  });
+  it("saving where it can't write fails nothing", () => {
+    expect(() => saveAppearance(join(userData(), "no-such-dir"), "dark")).not.toThrow();
   });
 });
 
@@ -151,9 +188,39 @@ describe("window chrome (macOS)", () => {
     expect(capsFor("windows")).not.toContain("window-controls");
     expect(capsFor("linux")).not.toContain("window-controls");
     expect(capsFor("windows")).toContain("daemon");
-    // The green light's arranging travels with the drawn lights.
-    expect(capsFor("macos")).toContain("window-arrange");
-    expect(capsFor("windows")).not.toContain("window-arrange");
+    // The green light's arranging travels with the drawn lights, and so does
+    // the title bar that takes over from them in the phone layout.
+    for (const cap of ["window-arrange", "window-titlebar"] as const) {
+      expect(capsFor("macos")).toContain(cap);
+      expect(capsFor("windows")).not.toContain(cap);
+      expect(capsFor("linux")).not.toContain(cap);
+    }
+  });
+  it("in the phone layout: the shell's title bar, the page below it, the system's lights in it", () => {
+    const size = { width: 390, height: 700 };
+    expect(framePlan({ layout: "phone", fullscreen: false }, size)).toEqual({
+      bar: true,
+      page: { x: 0, y: TITLE_BAR.height, width: 390, height: 700 - TITLE_BAR.height },
+      lights: TITLE_BAR.lights,
+    });
+    // As tall as the system's (31 + its line), the lights centred in it.
+    expect(TITLE_BAR.height).toBe(32);
+    expect(TITLE_BAR.lights.y + 8).toBe(TITLE_BAR.height / 2);
+  });
+  it("in the wide layout and in full screen: no bar, the page to the top edge", () => {
+    for (const at of [
+      { layout: "wide", fullscreen: false },
+      { layout: "wide", fullscreen: true },
+      { layout: "phone", fullscreen: true },
+    ] as const) {
+      const p = framePlan(at, { width: 1440, height: 900 });
+      expect(p.bar).toBe(false);
+      expect(p.page).toEqual({ x: 0, y: 0, width: 1440, height: 900 });
+      // Where the page's pill draws them (it hides the system's while it does).
+      expect(p.lights).toEqual(NATIVE_TRAFFIC_POSITION);
+    }
+    // Never a negative page, however short the window gets on the way.
+    expect(framePlan({ layout: "phone", fullscreen: false }, { width: 390, height: 10 }).page.height).toBe(0);
   });
   it("arranges the window inside the display's work area", () => {
     const area = { x: 0, y: 25, width: 1513, height: 957 };

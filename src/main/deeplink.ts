@@ -4,9 +4,11 @@
 //                                RN registers on phones: `mafold://app#<conv>`)
 //   mafold://link?code=…&state=… the system browser handing back an OAuth result
 //
-// The shell does not judge which hashes are meaningful — that is the page's
-// `isAppHash` (mafold-web lib/appHash.ts), the one place that rule lives. It
-// only refuses anything that cannot be a hash at all.
+// 深链这里不判断哪个 hash 是个地方,只拒掉根本不可能是 hash 的东西;是不是地方由页面读 hash 时定
+// (AppShell 的 openFromHash)。那条规则网页和壳只用一份:client-shared/reloadLanding.ts 的 `landingFromHash`
+// —— 网页 AppShell 读 hash、消息里的站内链接(lib/appHash.ts `isAppHash`)都用它;壳自己只在
+// relaunch.ts(重启后落回哪)用它的生成副本,深链不用。手机 RN 那份(mafold-rn/src/lib/appHash.ts
+// 的 `APP_HASH_RE`)归 M12 并进来。
 
 import { DEEP_LINK_SCHEME, MAX_DEEP_LINK_HASH } from "../shared/desktopHost.generated";
 

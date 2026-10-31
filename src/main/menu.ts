@@ -3,10 +3,10 @@
 // shortcuts: each item below sends a `command` the page maps to what it
 // already does from the keyboard.
 
-import { app, Menu, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, Menu, webContents, type MenuItemConstructorOptions } from "electron";
 
 import type { Shell } from "./shell";
-import { installUpdate } from "./updater";
+import { restartToUpdate } from "./updater";
 import type { HostCommand } from "../shared/desktopHost.generated";
 
 export function buildMenu(shell: Shell, os: "macos" | "windows" | "linux"): Menu {
@@ -49,14 +49,30 @@ export function buildMenu(shell: Shell, os: "macos" | "windows" | "linux"): Menu
     ],
   };
 
+  // Reload and zoom act on what is in front: a sign-in popup (a BrowserWindow
+  // of its own, security.ts) when it has the keyboard, otherwise the page —
+  // a view in the main window (window.ts), which the roles for them can't
+  // find (they act on a BrowserWindow's own page), nor the bar or the cover
+  // beside it. Zoom steps as the roles did (half a level).
+  const page = () => {
+    const f = webContents.getFocusedWebContents();
+    if (f && !f.isDestroyed() && f !== shell.page && BrowserWindow.fromWebContents(f)) return f;
+    return shell.page && !shell.page.isDestroyed() ? shell.page : null;
+  };
+  const zoomBy = (d: number) => () => {
+    const p = page();
+    if (p) p.setZoomLevel(d === 0 ? 0 : p.getZoomLevel() + d);
+  };
   const view: MenuItemConstructorOptions = {
     label: t("desktop.menu.view"),
     submenu: [
-      { role: "reload", label: t("desktop.menu.reload") },
+      { label: t("desktop.menu.reload"), accelerator: "CmdOrCtrl+R", click: () => page()?.reload() },
       { type: "separator" },
-      { role: "resetZoom", label: t("desktop.menu.actualSize") },
-      { role: "zoomIn", label: t("desktop.menu.zoomIn") },
-      { role: "zoomOut", label: t("desktop.menu.zoomOut") },
+      { label: t("desktop.menu.actualSize"), accelerator: "CmdOrCtrl+0", click: zoomBy(0) },
+      { label: t("desktop.menu.zoomIn"), accelerator: "CmdOrCtrl+Plus", click: zoomBy(0.5) },
+      // ⌘= is what people press for ⌘+ (no ⇧): the same, not shown.
+      { label: t("desktop.menu.zoomIn"), accelerator: "CmdOrCtrl+=", click: zoomBy(0.5), visible: false, acceleratorWorksWhenHidden: true },
+      { label: t("desktop.menu.zoomOut"), accelerator: "CmdOrCtrl+-", click: zoomBy(-0.5) },
       { type: "separator" },
       { role: "togglefullscreen", label: t("desktop.menu.fullScreen") },
     ],
@@ -76,7 +92,7 @@ export function buildMenu(shell: Shell, os: "macos" | "windows" | "linux"): Menu
 
   const settings: MenuItemConstructorOptions = { label: t("desktop.menu.settings"), accelerator: "CmdOrCtrl+,", click: command("settings") };
   const update: MenuItemConstructorOptions[] = shell.updateReady
-    ? [{ label: t("desktop.update.restart"), click: () => installUpdate() }, { type: "separator" }]
+    ? [{ label: t("desktop.update.restart"), click: () => restartToUpdate() }, { type: "separator" }]
     : [];
 
   const template: MenuItemConstructorOptions[] = mac

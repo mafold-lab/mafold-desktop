@@ -6,8 +6,9 @@ import { app, Menu, nativeImage, Tray, type MenuItemConstructorOptions } from "e
 
 import { resourcePath } from "./paths";
 import { badgePng } from "./png";
+import { fmtGrouped } from "../shared/units.generated";
 import type { Shell } from "./shell";
-import { installUpdate } from "./updater";
+import { restartToUpdate } from "./updater";
 
 let tray: Tray | null = null;
 let lastLabels: string[] = [];
@@ -53,7 +54,7 @@ export function refreshTray(shell: Shell, os: "macos" | "windows" | "linux"): vo
       ...rows,
       { type: "separator" },
       { label: t("desktop.tray.open"), click: () => shell.showWindow() },
-      ...(shell.updateReady ? [{ label: t("desktop.update.restart"), click: () => installUpdate() }] : []),
+      ...(shell.updateReady ? [{ label: t("desktop.update.restart"), click: () => restartToUpdate() }] : []),
       { type: "separator" },
       { label: t("desktop.tray.quit"), click: () => app.quit() },
     ];
@@ -61,7 +62,7 @@ export function refreshTray(shell: Shell, os: "macos" | "windows" | "linux"): vo
     tray.setContextMenu(Menu.buildFromTemplate(menu));
   }
   if (tray) {
-    const tooltip = total > 0 ? `Mafold — ${t("desktop.tray.unread", { count: total })}` : "Mafold";
+    const tooltip = total > 0 ? `Mafold — ${t("desktop.tray.unread", { count: fmtGrouped(total) })}` : "Mafold";
     if (tooltip !== drawn.tooltip) tray.setToolTip((drawn.tooltip = tooltip));
     const title = total > 0 ? (total > 99 ? "99+" : String(total)) : "";
     if (os === "macos" && title !== drawn.title) tray.setTitle((drawn.title = title));
@@ -74,7 +75,7 @@ export function refreshTray(shell: Shell, os: "macos" | "windows" | "linux"): vo
     const w = shell.window;
     if (w && !w.isDestroyed()) {
       const png = badgePng(total);
-      w.setOverlayIcon(png ? nativeImage.createFromBuffer(png) : null, png ? t("desktop.tray.unread", { count: total }) : "");
+      w.setOverlayIcon(png ? nativeImage.createFromBuffer(png) : null, png ? t("desktop.tray.unread", { count: fmtGrouped(total) }) : "");
     }
   } else {
     app.setBadgeCount(Math.max(0, Math.min(total, 9999)));

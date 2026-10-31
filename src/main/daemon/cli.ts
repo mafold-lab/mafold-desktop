@@ -44,19 +44,24 @@ export interface RunResult {
   code: number;
   stdout: string;
   stderr: string;
+  /** Stopped at `timeoutMs` — it didn't answer in time, which is not the
+   *  same as saying no. */
+  timedOut?: boolean;
 }
 
 export function runCli(p: CliPaths, env: NodeJS.ProcessEnv, args: string[], timeoutMs: number): Promise<RunResult> {
   return new Promise((resolve) => {
     execFile(p.exe, args, { env, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === "number" ? ((err as { code: number }).code) : 1) : 0;
-      resolve({ code, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") });
+      const timedOut = !!err && (err as { killed?: boolean }).killed === true;
+      resolve({ code, stdout: String(stdout ?? ""), stderr: String(stderr ?? ""), ...(timedOut ? { timedOut } : {}) });
     });
   });
 }
 
-export function spawnCli(p: CliPaths, env: NodeJS.ProcessEnv, args: string[]): ChildProcess {
-  return spawn(p.exe, args, { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+/** `stdin`: the command reads an answer from the shell (`runtime login`'s code). */
+export function spawnCli(p: CliPaths, env: NodeJS.ProcessEnv, args: string[], opts: { stdin?: boolean } = {}): ChildProcess {
+  return spawn(p.exe, args, { env, windowsHide: true, stdio: [opts.stdin ? "pipe" : "ignore", "pipe", "pipe"] });
 }
 
 /**

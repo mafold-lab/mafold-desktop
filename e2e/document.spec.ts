@@ -23,9 +23,11 @@ const HIDDEN_ARG = "--hidden"; // autostart.ts (which imports electron: not load
 // would wait for them to finish (shell.spec.ts `clickLink`).
 const clickLink = (l: Launched, id: string) => l.page.evaluate((i) => (document.getElementById(i) as HTMLAnchorElement).click(), id);
 
-type Hooks = { subscribed(name: string): boolean; emit(name: string, payload?: string): void };
+type Hooks = { subscribed(name: string): boolean; emit(name: string, payload?: string): void; pageLeaving(): boolean };
 const shell = (l: Launched) => ({
   subscribed: (name: string) => l.app.evaluate((_e, n) => (globalThis as unknown as { __mafoldTest: Hooks }).__mafoldTest.subscribed(n), name),
+  /** 壳看见主窗口开始加载另一份文档了(shell.ts `leavingDocument`)。 */
+  leaving: () => l.app.evaluate(() => (globalThis as unknown as { __mafoldTest: Hooks }).__mafoldTest.pageLeaving()),
   /** One event from the shell, as it would send it (a deep link is `navigate`). */
   emit: (name: string, payload: string) =>
     l.app.evaluate((_e, [n, p]) => (globalThis as unknown as { __mafoldTest: Hooks }).__mafoldTest.emit(n, p), [name, payload] as const),
@@ -94,11 +96,18 @@ test("a new document starts with nothing: what the page before it listened to is
 
 test("a deep link that arrives while the page is on its way out goes to the page that replaces it", async () => {
   const s = shell(l);
+  const sent = Date.now();
   void l.page.evaluate(() => {
     location.href = "/app?slow"; // takes 1.5 s to arrive
   });
   await expect.poll(() => s.subscribed("navigate")).toBe(true); // the old page, still showing
-  await l.page.waitForTimeout(300);
+  // 等壳看见这次导航开始了(did-start-navigation)再发。以前是干等 300ms 当作它已经
+  // 看见:location.href 那一下是不等它跑完的 evaluate,300ms 里壳看没看见没人保证
+  // (macOS 的 CI 上,开窗盖层那层正在撤的时候,红过两次);还没看见时深链照规矩
+  // 交给眼前的旧页,跟着它走了。
+  await expect.poll(() => s.leaving()).toBe(true);
+  console.log(`mid-flight: the shell saw the navigation start within ${Date.now() - sent} ms`);
+  expect(await s.subscribed("navigate")).toBe(true); // 旧页还在、还听着:深链只能是被扣下的
   await s.emit("navigate", "#mid-flight");
   await l.page.waitForURL("**/app?slow");
   await l.page.waitForSelector("#h");
@@ -112,8 +121,8 @@ test("macOS: one set of lights — the system's stay hidden while the page draws
   // `getWindowButtonPosition`: the slot the shell placed them in
   // (`trafficLightPosition`) — nothing may move it.
   const lights = () =>
-    l.app.evaluate(({ BrowserWindow }) => {
-      const w = BrowserWindow.getAllWindows()[0] as Electron.BrowserWindow & { _getWindowButtonVisibility(): boolean };
+    l.app.evaluate(({ BaseWindow }) => {
+      const w = BaseWindow.getAllWindows()[0] as Electron.BaseWindow & { _getWindowButtonVisibility(): boolean };
       return { system: w._getWindowButtonVisibility(), at: w.getWindowButtonPosition() };
     });
   const drawByPage = () => l.page.evaluate(() => (window as unknown as { mafoldHost: { setWindowControls(d: boolean): void } }).mafoldHost.setWindowControls(true));

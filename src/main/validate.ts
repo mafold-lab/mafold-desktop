@@ -4,7 +4,7 @@
 // clipped, before anything native sees it. Pure, so test/validate.spec.ts
 // covers it without Electron.
 
-import { HOST_COMMANDS, WINDOW_ACTIONS, type Appearance, type HostEventName, type HostNotification, type UnreadSummary, type WindowAction } from "../shared/desktopHost.generated";
+import { HOST_COMMANDS, WINDOW_ACTIONS, WINDOW_LAYOUTS, type Appearance, type HostEventName, type HostNotification, type UnreadSummary, type WindowAction, type WindowLayout } from "../shared/desktopHost.generated";
 import { clip } from "./limits";
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -53,10 +53,13 @@ export function readNotification(v: unknown): HostNotification | null {
 export const readAppearance = (v: unknown): Appearance | null => (v === "light" || v === "dark" || v === "system" ? v : null);
 
 export const readEventName = (v: unknown): HostEventName | null =>
-  v === "navigate" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" ? v : null;
+  v === "navigate" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" || v === "update" || v === "logs" ? v : null;
 
 export const readWindowAction = (v: unknown): WindowAction | null =>
   typeof v === "string" && (WINDOW_ACTIONS as readonly string[]).includes(v) ? (v as WindowAction) : null;
+
+export const readWindowLayout = (v: unknown): WindowLayout | null =>
+  typeof v === "string" && (WINDOW_LAYOUTS as readonly string[]).includes(v) ? (v as WindowLayout) : null;
 
 export const isHostCommand = (v: unknown): boolean => typeof v === "string" && (HOST_COMMANDS as readonly string[]).includes(v);
 

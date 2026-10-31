@@ -10,12 +10,14 @@ export interface ShellConfig {
   startUrl: string;
   /** The api origin: its `/download/<id>` responses are file downloads. */
   apiOrigin: string;
-  /** electron-updater's generic feed, or null when updates are off (unpackaged). */
+  /** electron-updater's generic feed, or null when updates are off (unpackaged).
+   *  Stable and beta machines read different files in it (updateChannel.ts). */
   updateFeed: string | null;
   /** Unpackaged only: where e2e keeps this run's userData / downloads, and
    *  where `openExternal` is recorded instead of performed; the mafold home
    *  and cli binary the daemon manager uses instead of `~/.mafold` and the
-   *  bundled one; and the answer every confirmation dialog gets. */
+   *  bundled one; the answer every confirmation dialog gets, and the path
+   *  every save dialog does. */
   test: {
     userData?: string;
     downloads?: string;
@@ -23,6 +25,7 @@ export interface ShellConfig {
     mafoldHome?: string;
     cli?: string;
     confirm?: "yes" | "no";
+    saveAs?: string;
   } | null;
 }
 
@@ -51,7 +54,13 @@ export function resolveConfig(env: Record<string, string | undefined>, packaged:
   const answer = env.MAFOLD_DESKTOP_TEST_CONFIRM;
   const confirm: "yes" | "no" | undefined = answer === "yes" || answer === "no" ? answer : undefined;
   const test =
-    env.MAFOLD_DESKTOP_USER_DATA || env.MAFOLD_DESKTOP_DOWNLOADS || env.MAFOLD_DESKTOP_EXTERNAL_LOG || env.MAFOLD_DESKTOP_MAFOLD_HOME || env.MAFOLD_DESKTOP_CLI || confirm
+    env.MAFOLD_DESKTOP_USER_DATA ||
+    env.MAFOLD_DESKTOP_DOWNLOADS ||
+    env.MAFOLD_DESKTOP_EXTERNAL_LOG ||
+    env.MAFOLD_DESKTOP_MAFOLD_HOME ||
+    env.MAFOLD_DESKTOP_CLI ||
+    env.MAFOLD_DESKTOP_TEST_SAVE_AS ||
+    confirm
       ? {
           userData: env.MAFOLD_DESKTOP_USER_DATA,
           downloads: env.MAFOLD_DESKTOP_DOWNLOADS,
@@ -59,6 +68,7 @@ export function resolveConfig(env: Record<string, string | undefined>, packaged:
           mafoldHome: env.MAFOLD_DESKTOP_MAFOLD_HOME,
           cli: env.MAFOLD_DESKTOP_CLI,
           confirm,
+          saveAs: env.MAFOLD_DESKTOP_TEST_SAVE_AS,
         }
       : null;
   return { webOrigin, startUrl: new URL(path, webOrigin).toString(), apiOrigin, updateFeed: null, test };

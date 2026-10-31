@@ -35,6 +35,9 @@ let permissionFile: string | null = null;
 
 /** The test notification's slot in `live` — one at a time, like a conversation's. */
 const TEST_KEY = "test";
+/** The shell's own "a new version is ready" (updater.ts), likewise. */
+const UPDATE_KEY = "update";
+let updateNotices = 0;
 /** How long a test waits for the system to take or refuse it. */
 const TEST_TIMEOUT_MS = 5_000;
 
@@ -141,6 +144,20 @@ export function testNotification(shell: Shell, os: Os): Promise<NotifyPermission
   });
 }
 
+/** "A new version of Mafold is ready", in the shell's own words. Held like the
+ *  page's: a collected one would leave Notification Center on macOS. */
+export function notifyUpdateReady(shell: Shell, os: Os, onClick: () => void): void {
+  updateNotices++;
+  if (!Notification.isSupported()) return;
+  const note = new Notification({
+    title: "Mafold",
+    body: shell.strings.t("desktop.update.ready"),
+    silent: true,
+    icon: os === "macos" ? undefined : resourcePath("icon-256.png"),
+  });
+  present(shell, UPDATE_KEY, note, onClick);
+}
+
 /** Open the system's notification settings for Mafold. Whatever the person
  *  does there, the shell can no longer vouch for what it saw before. */
 export function openNotifySettings(shell: Shell, os: Os, systemVersion: string): void {
@@ -151,3 +168,7 @@ export function openNotifySettings(shell: Shell, os: Os, systemVersion: string):
 
 /** How many notifications have been shown, for tests. */
 export const notificationsShown = (): number => shownCount;
+
+/** How many times the shell decided to announce a ready version, for tests —
+ *  counted before asking whether the system shows notifications at all. */
+export const updateNoticesPosted = (): number => updateNotices;

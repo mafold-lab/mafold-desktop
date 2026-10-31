@@ -2,25 +2,48 @@
 // calling: only the main window's top frame, showing the web origin, is
 // answered. Child windows, subframes, the offline page — dropped silently.
 
-import { ipcMain, nativeTheme, screen, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { app, ipcMain, nativeTheme, screen, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import { arrangedBounds } from "./chrome";
 
+import { saveAppearance } from "./appearance";
 import { RateLimit } from "./limits";
 import { log } from "./log";
 import { notifyPermission, openNotifySettings, showNotification, testNotification } from "./notify";
 import { originOf } from "./policy";
 import type { Shell } from "./shell";
-import { readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, sameUnread } from "./validate";
-import { IPC, type DaemonEnableResult, type DaemonStatus, type NotifyPermission, type OAuthResult } from "../shared/desktopHost.generated";
+import { readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
+import {
+  IPC,
+  type AdoptCheck,
+  type AdoptResult,
+  type BotRestartResult,
+  type CliInstallResult,
+  type CliRollbackCheck,
+  type CliUpdateResult,
+  type DaemonEnableResult,
+  type DaemonStatus,
+  type DiagnoseResult,
+  type HostUpdate,
+  type LogError,
+  type LogTail,
+  type NotifyPermission,
+  type OAuthResult,
+  type RuntimeLoginResult,
+  type RuntimeLoginStart,
+} from "../shared/desktopHost.generated";
 import type { DaemonManager } from "./daemon/manager";
-import { isUsername } from "./daemon/model";
+import { isChannel, isUsername } from "./daemon/model";
+import type { Updater } from "./updater";
+
+/** The page's name for one follow: it counts them from 1. */
+const isFollowId = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 
 export function fromOurPage(shell: Shell, e: IpcMainEvent | IpcMainInvokeEvent): boolean {
-  const w = shell.window;
+  const page = shell.page;
   const frame = e.senderFrame;
-  if (!w || w.isDestroyed() || !frame || e.sender !== w.webContents) return false;
+  if (!page || page.isDestroyed() || !frame || e.sender !== page) return false;
   // Compare the frame by identity of process + routing id, not object identity.
-  const main = w.webContents.mainFrame;
+  const main = page.mainFrame;
   return frame.processId === main.processId && frame.routingId === main.routingId && originOf(frame.url) === shell.cfg.webOrigin;
 }
 
@@ -29,6 +52,7 @@ export function registerBridge(
   os: "macos" | "windows" | "linux",
   autostart: { get(): boolean; set(on: boolean): void },
   daemon: DaemonManager,
+  updater: Updater,
 ): void {
   const on = (channel: string, fn: (e: IpcMainEvent, ...args: unknown[]) => void) =>
     ipcMain.on(channel, (e, ...args) => {
@@ -53,6 +77,10 @@ export function registerBridge(
   on(IPC.subscribe, (_e, name) => {
     const n = readEventName(name);
     if (n) shell.subscribe(n);
+  });
+  on(IPC.unsubscribe, (_e, name) => {
+    const n = readEventName(name);
+    if (n) shell.unsubscribe(n);
   });
 
   on(IPC.setUnread, (_e, v) => {
@@ -92,16 +120,29 @@ export function registerBridge(
     shell.changed();
   });
 
+  // The window's ground, the tray and the menus follow the page's theme — and
+  // so does the next launch's first frame (appearance.ts). The page applies
+  // its theme on every load; only a change is written.
   on(IPC.setAppearance, (_e, mode) => {
     const m = readAppearance(mode);
-    if (m) nativeTheme.themeSource = m;
+    if (!m || m === nativeTheme.themeSource) return;
+    nativeTheme.themeSource = m;
+    saveAppearance(app.getPath("userData"), m);
   });
 
   // The window's lights, drawn by the page (chrome.ts). macOS only: elsewhere
   // the cap is not offered and these are never sent.
   if (os === "macos") {
     on(IPC.setWindowControls, (_e, drawn) => {
-      if (typeof drawn === "boolean") shell.window?.setWindowButtonVisibility(!drawn);
+      if (typeof drawn !== "boolean") return;
+      shell.frame?.pageDrawsLights(drawn);
+      shell.window?.setWindowButtonVisibility(!drawn);
+    });
+    // `window-titlebar`: which layout the page is in — the shell's title bar
+    // shows in the phone one (frame.ts). Sent before `setWindowControls`.
+    on(IPC.setWindowLayout, (_e, layout) => {
+      const l = readWindowLayout(layout);
+      if (l) shell.frame?.setLayout(l);
     });
     on(IPC.windowControl, (_e, action) => {
       const w = shell.window;
@@ -165,6 +206,78 @@ export function registerBridge(
     (username) => (isUsername(username) ? daemon.disable(username) : { ok: false, error: "invalid account" }),
     { ok: false, error: "refused" },
   );
+  // A bot's handle (`owner:bot`) the page passes; only one configured here is
+  // restarted (`DaemonManager.restart`) — and, when the page says who it is
+  // signed in as, only that person's.
+  handle<BotRestartResult>(
+    IPC.daemonRestart,
+    (name, username) =>
+      isUsername(name) && (username === undefined || isUsername(username))
+        ? daemon.restart(name, username)
+        : { ok: false, error: "refused" },
+    { ok: false, error: "refused" },
+  );
+  handle<DaemonEnableResult>(
+    IPC.daemonRelogin,
+    (username) => (isUsername(username) ? daemon.relogin(username) : { error: "invalid account" }),
+    { error: "refused" },
+  );
+  handle<RuntimeLoginStart>(
+    IPC.runtimeLogin,
+    (runtime) => (typeof runtime === "string" ? daemon.runtimeLogin(runtime) : { error: "refused" }),
+    { error: "refused" },
+  );
+  handle<RuntimeLoginResult>(IPC.runtimeLoginCode, (code) => daemon.runtimeLoginCode(code), { ok: false, error: "refused" });
+  handle<void>(IPC.runtimeLoginCancel, () => daemon.runtimeLoginCancel(), undefined);
+
+  // This computer's logs (activity center D4). Like everything here, only the
+  // main window's page is answered: a card runs in a frame of its own and
+  // never reaches the bridge. `bot` null = the supervisor's log.
+  const logSource = (username: unknown, bot: unknown): username is string => isUsername(username) && (bot === null || isUsername(bot));
+  handle<LogTail>(
+    IPC.daemonLogs,
+    (username, bot, lines) => (logSource(username, bot) ? daemon.logs(username, bot as string | null, lines) : { ok: false, error: "refused" }),
+    { ok: false, error: "refused" },
+  );
+  handle<{ ok: true } | { ok: false; error: LogError }>(
+    IPC.logsFollow,
+    (id, username, bot, lines) =>
+      isFollowId(id) && logSource(username, bot) ? daemon.followLogs(id, username, bot as string | null, lines) : { ok: false, error: "refused" },
+    { ok: false, error: "refused" },
+  );
+  on(IPC.logsStop, (_e, id) => {
+    if (isFollowId(id)) daemon.stopFollow(id, "closed");
+  });
+  handle<DiagnoseResult>(IPC.diagnose, () => daemon.diagnose(), { ok: false, error: "refused" });
+
+  // mafold-cli's own updates here (activity center D5). The page passes a
+  // boolean or a channel name, nothing else; a rollback asks natively first.
+  handle<CliUpdateResult>(IPC.cliCheck, () => daemon.checkUpdate(), { ok: false, error: "refused" });
+  handle<CliInstallResult>(IPC.cliInstall, () => daemon.updateCli(), { ok: false, error: "refused" });
+  handle<CliUpdateResult>(
+    IPC.cliAutoUpdate,
+    (on) => (typeof on === "boolean" ? daemon.setAutoUpdate(on) : { ok: false, error: "refused" }),
+    { ok: false, error: "refused" },
+  );
+  handle<CliUpdateResult>(IPC.cliChannel, (channel) => (isChannel(channel) ? daemon.setChannel(channel) : { ok: false, error: "refused" }), {
+    ok: false,
+    error: "refused",
+  });
+  handle<CliRollbackCheck>(IPC.cliRollbackCheck, () => daemon.rollbackCheck(), { ok: false, error: "refused" });
+  handle<CliInstallResult>(IPC.cliRollback, () => daemon.rollback(), { ok: false, error: "refused" });
+
+  // Handing this computer's bots to Mafold (activity center D6): the page
+  // passes nothing; the shell asks natively first.
+  handle<AdoptCheck>(IPC.adoptCheck, () => daemon.adoptCheck(), { ok: false, error: "refused" });
+  handle<AdoptResult>(IPC.adopt, () => daemon.adopt(), { ok: false, error: "refused" });
+
+  // The shell's own update (updater.ts): where it has got, restart into a ready
+  // one, and a check — at most one a minute reaches the feed; sooner, the
+  // answer is the state as it is.
+  const checks = new RateLimit(60_000);
+  handle<HostUpdate | null>(IPC.updateState, () => updater.state(), null);
+  handle<boolean>(IPC.updateInstall, () => updater.install(), false);
+  handle<HostUpdate | null>(IPC.updateCheck, () => (checks.allow("check", Date.now()) ? updater.check() : updater.state()), null);
 
   // Expiry of abandoned authorizations, so a forgotten tab's promise settles.
   setInterval(() => shell.pending.sweep(Date.now()), 60_000).unref();
