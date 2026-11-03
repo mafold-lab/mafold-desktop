@@ -31,6 +31,7 @@ import {
   type HostEventName,
   type HostNotification,
   type HostOs,
+  type HostShare,
   type HostUpdate,
   type LogError,
   type LogFrame,
@@ -97,13 +98,14 @@ if (webOrigin && window.location.origin === webOrigin) {
     setUnread: (u: UnreadSummary) => ipcRenderer.send(IPC.setUnread, u),
     notify: (n: HostNotification) => ipcRenderer.send(IPC.notify, n),
     openExternal: (url: string) => ipcRenderer.send(IPC.openExternal, url),
+    takeShare: (): Promise<HostShare | null> => ipcRenderer.invoke(IPC.shareTake),
     oauth: (authorizeUrl: string, state: string): Promise<OAuthResult> => ipcRenderer.invoke(IPC.oauth, authorizeUrl, state),
     setLocale: (lang: string, strings: Record<string, string>) => ipcRenderer.send(IPC.setLocale, lang, strings),
     setAppearance: (mode: Appearance) => ipcRenderer.send(IPC.setAppearance, mode),
     on: ((name: HostEventName, cb: (payload?: string) => void) => {
       if (name === "navigate") return subscribe(name, (p) => typeof p === "string" && cb(p));
       if (name === "command") return subscribe(name, (p) => typeof p === "string" && (cb as (c: HostCommand) => void)(p as HostCommand));
-      if (name === "resume") return subscribe(name, () => (cb as () => void)());
+      if (name === "resume" || name === "share") return subscribe(name, () => (cb as () => void)());
       if (name === "daemon") {
         return subscribe(name, (p) => {
           if (typeof p !== "string") return;

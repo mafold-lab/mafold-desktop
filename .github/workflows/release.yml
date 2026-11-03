@@ -111,6 +111,22 @@ jobs:
             echo "$V" | grep -q 'source=Notarized Developer ID' || { echo "::error::Gatekeeper does not accept $app as notarized"; exit 1; }
             xcrun stapler validate "$app"
           done
+      # An extension that is unsigned, unsandboxed or missing never shows in the
+      # share menu, and nothing about that fails on its own.
+      - name: Share extension embedded, sandboxed, in the app's group
+        run: |
+          set -euo pipefail
+          GROUP=UGZPUZZYDD.com.mafold.share
+          for app in release/mac*/Mafold.app; do
+            appex="$app/Contents/PlugIns/MafoldShare.appex"
+            [ -d "$appex" ] || { echo "::error::$app has no share extension"; exit 1; }
+            codesign --verify --strict --verbose=2 "$appex"
+            codesign -dv "$appex" 2>&1 | grep -q '^TeamIdentifier=UGZPUZZYDD$' || { echo "::error::$appex is not signed by team UGZPUZZYDD"; exit 1; }
+            E="$(codesign -d --entitlements - --xml "$appex" 2>/dev/null)"
+            echo "$E" | grep -q com.apple.security.app-sandbox || { echo "::error::$appex is not sandboxed"; exit 1; }
+            echo "$E" | grep -q "$GROUP" || { echo "::error::$appex does not claim $GROUP"; exit 1; }
+            codesign -d --entitlements - --xml "$app" 2>/dev/null | grep -q "$GROUP" || { echo "::error::$app does not claim $GROUP"; exit 1; }
+          done
       # Passkeys (src/main/webauthn.ts) need the keychain group on the app, and
       # that entitlement is restricted: without the embedded profile allowing it
       # macOS kills the app at launch — a release nobody can open. So: profile

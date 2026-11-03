@@ -23,5 +23,10 @@
     <array>
       <string>UGZPUZZYDD.com.mafold.desktop.webauthn</string>
     </array>
+    <!-- The inbox the share extension writes to (src/main/shareInbox.ts). -->
+    <key>com.apple.security.application-groups</key>
+    <array>
+      <string>UGZPUZZYDD.com.mafold.share</string>
+    </array>
   </dict>
 </plist>

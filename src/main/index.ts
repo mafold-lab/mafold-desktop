@@ -66,6 +66,11 @@ function openDeepLink(raw: string): void {
     shell.emit("navigate", link.hash);
     return;
   }
+  if (link.kind === "share") {
+    shell.showWindow();
+    shell.emit("share");
+    return;
+  }
   // An OAuth result from the system browser. Only a state we registered counts.
   if (shell.pending.deliver(link.state, { code: link.code, error: link.error }, Date.now())) shell.showWindow();
 }

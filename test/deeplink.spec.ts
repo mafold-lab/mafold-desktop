@@ -27,6 +27,10 @@ describe("parseDeepLink", () => {
     });
     expect(parseDeepLink("mafold://link?code=abc")).toBeNull();
   });
+  it("reads the share extension's knock, which carries nothing", () => {
+    expect(parseDeepLink("mafold://share")).toEqual({ kind: "share" });
+    expect(parseDeepLink("mafold://share?id=x#y")).toEqual({ kind: "share" });
+  });
   it("ignores other schemes and hosts", () => {
     for (const raw of ["https://mafold.com/app#x", "mafold://evil#x", "mafoldx://app#x", "", "mafold:app#x"]) {
       expect(parseDeepLink(raw), raw).toBeNull();

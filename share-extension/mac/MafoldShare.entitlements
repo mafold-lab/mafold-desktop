@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!-- macOS will not load an app extension that is not sandboxed. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <!-- Reads what the person chose to share. -->
+    <key>com.apple.security.files.user-selected.read-only</key>
+    <true/>
+    <!-- The inbox it shares with the app. An App Group with the team id in
+         front needs no provisioning profile on macOS. -->
+    <key>com.apple.security.application-groups</key>
+    <array>
+      <string>UGZPUZZYDD.com.mafold.share</string>
+    </array>
+  </dict>
+</plist>

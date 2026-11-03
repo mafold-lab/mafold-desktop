@@ -11,6 +11,8 @@
 #            latest.yml and nothing else.
 appId: com.mafold.desktop
 productName: Mafold
+# The macOS share extension goes in here, built and signed apart from the app.
+afterPack: scripts/embed-share-extension.cjs
 copyright: Copyright © Mafold
 
 directories:

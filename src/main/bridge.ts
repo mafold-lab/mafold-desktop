@@ -6,6 +6,7 @@ import { app, ipcMain, nativeTheme, screen, type IpcMainEvent, type IpcMainInvok
 import { arrangedBounds } from "./chrome";
 
 import { saveAppearance } from "./appearance";
+import { shareInboxDir, takeShare } from "./shareInbox";
 import { RateLimit } from "./limits";
 import { log } from "./log";
 import { notifyPermission, openNotifySettings, showNotification, testNotification } from "./notify";
@@ -23,6 +24,7 @@ import {
   type DaemonEnableResult,
   type DaemonStatus,
   type DiagnoseResult,
+  type HostShare,
   type HostUpdate,
   type LogError,
   type LogTail,
@@ -108,6 +110,8 @@ export function registerBridge(
     "unknown",
   );
   on(IPC.notifySettings, () => openNotifySettings(shell, os, process.getSystemVersion()));
+
+  handle<HostShare | null>(IPC.shareTake, () => (os === "macos" ? takeShare(shareInboxDir()) : null), null);
 
   on(IPC.openExternal, (_e, url) => {
     if (typeof url === "string" && url.length <= 8192) shell.openExternal(url, "page");

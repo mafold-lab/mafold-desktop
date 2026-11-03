@@ -3,6 +3,9 @@
 //   mafold://app#<hash>          open the app at an in-app hash (the same shape
 //                                RN registers on phones: `mafold://app#<conv>`)
 //   mafold://link?code=…&state=… the system browser handing back an OAuth result
+//   mafold://share               the share extension: something is in the inbox
+//                                (shareInbox.ts). It carries nothing, so any page
+//                                that opens it only brings the window forward.
 //
 // 深链这里不判断哪个 hash 是个地方,只拒掉根本不可能是 hash 的东西;是不是地方由页面读 hash 时定
 // (AppShell 的 openFromHash)。那条规则网页和壳只用一份:client-shared/reloadLanding.ts 的 `landingFromHash`
@@ -14,6 +17,7 @@ import { DEEP_LINK_SCHEME, MAX_DEEP_LINK_HASH } from "../shared/desktopHost.gene
 
 export type DeepLink =
   | { kind: "app"; hash: string }
+  | { kind: "share" }
   | { kind: "link"; state: string; code?: string; error?: string };
 
 const PREFIX = `${DEEP_LINK_SCHEME}://`;
@@ -34,6 +38,7 @@ export function parseDeepLink(raw: string): DeepLink | null {
     if (hash.length < 2 || hash.length > MAX_DEEP_LINK_HASH || !HASH_RE.test(hash)) return null;
     return { kind: "app", hash };
   }
+  if (u.host === "share") return { kind: "share" };
   if (u.host === "link") {
     const q = u.searchParams;
     const state = q.get("state") ?? "";

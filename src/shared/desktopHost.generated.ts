@@ -30,6 +30,11 @@ export const HOST_CAPS = [
   "notify-settings",
   // `on("navigate")` — deep links, notification clicks, tray rows.
   "navigate",
+  // `share-inbox` (macOS) — what another app shared to Mafold through the
+  // system share menu: `on("share")` says something arrived, `takeShare()`
+  // hands it over, once. The share extension drops it in a folder and opens
+  // `mafold://share`; the page stages it on the chat the person picks.
+  "share-inbox",
   // `on("command")` — the native menu's shortcuts (⌘N, ⌘K, …).
   "commands",
   // `oauth()` — third-party authorization in the system browser, back over `mafold://link`.
@@ -153,7 +158,7 @@ export interface OAuthResult {
   error?: string;
 }
 
-export type HostEventName = "navigate" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs";
+export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs";
 
 /**
  * The shell's own update, as far as it has got. `ready` stays until the shell
@@ -621,6 +626,21 @@ export interface LogFrame {
  *  read back there as big as the cli said. Nothing in it reaches the page. */
 export type DiagnoseResult = { ok: true; name: string; bytes: number; masked: number } | { ok: false; error: LogError; detail?: string };
 
+/** One file shared from another app, as bytes the page turns into a `File`. */
+export interface HostShareFile {
+  name: string;
+  mime: string;
+  bytes: Uint8Array;
+}
+
+/** What another app shared to Mafold. `skipped` counts the files left behind:
+ *  past `MAX_SHARE_BYTES`, or gone by the time the shell read them. */
+export interface HostShare {
+  text: string;
+  files: HostShareFile[];
+  skipped: number;
+}
+
 export interface MafoldHost {
   readonly kind: "desktop";
   /** The shell's own version (not the web's). */
@@ -637,11 +657,16 @@ export interface MafoldHost {
    *  `DESKTOP_STATE_PREFIX` — that prefix is how the callback page, running in
    *  the system browser, knows to hand the result to `mafold://link`. */
   oauth(authorizeUrl: string, state: string): Promise<OAuthResult>;
+  /** `share-inbox`: the oldest share waiting, and it stops waiting; null when
+   *  there is none. Asked on start too — a share can launch the app. */
+  takeShare(): Promise<HostShare | null>;
   /** The page's language and the `desktop.*` strings it resolved. Used for the
    *  tray and menus only — never for a confirmation dialog. */
   setLocale(lang: string, strings: Record<string, string>): void;
   setAppearance(mode: Appearance): void;
   on(ev: "navigate", cb: (hash: string) => void): () => void;
+  /** `share-inbox`: something arrived; `takeShare()` to get it. */
+  on(ev: "share", cb: () => void): () => void;
   on(ev: "command", cb: (cmd: HostCommand) => void): () => void;
   on(ev: "resume", cb: () => void): () => void;
   on(ev: "daemon", cb: (s: DaemonStatus) => void): () => void;
@@ -775,6 +800,7 @@ export const IPC = {
   notifyTest: "mafold-host:notify-test",
   notifySettings: "mafold-host:notify-settings",
   openExternal: "mafold-host:open-external",
+  shareTake: "mafold-host:share-take",
   oauth: "mafold-host:oauth",
   setLocale: "mafold-host:set-locale",
   setAppearance: "mafold-host:set-appearance",
@@ -826,3 +852,7 @@ export interface HostEventEnvelope {
 
 /** The longest hash a deep link may carry into the page. */
 export const MAX_DEEP_LINK_HASH = 512;
+
+/** The most one share carries into the page. It crosses IPC whole, and a single
+ *  file past the API's upload limit (mafold-api `MAX_BYTES`) could not be sent. */
+export const MAX_SHARE_BYTES = 500 * 1024 * 1024;
