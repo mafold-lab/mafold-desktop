@@ -14,6 +14,23 @@ export class RateLimit {
   }
 }
 
+/** Who was last touched by the person, and when. What a browser calls a user
+ *  gesture, which is what lets a page open a window: Electron has no popup
+ *  blocker of its own. */
+export class RecentActs<T extends object> {
+  private last = new WeakMap<T, number>();
+  constructor(private windowMs: number) {}
+
+  saw(who: T, now: number): void {
+    this.last.set(who, now);
+  }
+
+  recent(who: T, now: number): boolean {
+    const at = this.last.get(who);
+    return at !== undefined && now - at < this.windowMs;
+  }
+}
+
 /** A name that does not collide with an existing file: `a.pdf`, `a (1).pdf`, … */
 export function uniqueName(name: string, taken: (candidate: string) => boolean): string {
   const clean = name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").replace(/^\.+/, "_").slice(0, 200) || "download";

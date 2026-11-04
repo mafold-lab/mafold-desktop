@@ -50,13 +50,14 @@ export function buildMenu(shell: Shell, os: "macos" | "windows" | "linux"): Menu
   };
 
   // Reload and zoom act on what is in front: a sign-in popup (a BrowserWindow
-  // of its own, security.ts) when it has the keyboard, otherwise the page —
-  // a view in the main window (window.ts), which the roles for them can't
-  // find (they act on a BrowserWindow's own page), nor the bar or the cover
-  // beside it. Zoom steps as the roles did (half a level).
+  // of its own, security.ts) or a site on a tab of the page when it has the
+  // keyboard, otherwise the page — a view in the main window (window.ts),
+  // which the roles for them can't find (they act on a BrowserWindow's own
+  // page), nor the bar or the cover beside it. Zoom steps as the roles did
+  // (half a level).
   const page = () => {
     const f = webContents.getFocusedWebContents();
-    if (f && !f.isDestroyed() && f !== shell.page && BrowserWindow.fromWebContents(f)) return f;
+    if (f && !f.isDestroyed() && f !== shell.page && (f.getType() === "webview" || BrowserWindow.fromWebContents(f))) return f;
     return shell.page && !shell.page.isDestroyed() ? shell.page : null;
   };
   const zoomBy = (d: number) => () => {

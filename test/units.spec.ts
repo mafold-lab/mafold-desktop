@@ -7,8 +7,9 @@ import { describe, expect, it } from "vitest";
 import { readSavedAppearance, saveAppearance } from "../src/main/appearance";
 import { resolveConfig, PRODUCTION } from "../src/main/config";
 import { Strings } from "../src/main/i18n";
-import { clip, RateLimit, uniqueName } from "../src/main/limits";
+import { clip, RateLimit, RecentActs, uniqueName } from "../src/main/limits";
 import { badgePng, badgeText, encodePng, renderBadge } from "../src/main/png";
+import { SiteGrants } from "../src/main/siteGrants";
 import { fit, MAC_MIN_SIZE, MIN_SIZE, minSizeFor } from "../src/main/windowState";
 import { arrangedBounds, capsFor, framePlan, NATIVE_TRAFFIC_POSITION, TITLE_BAR, TRAFFIC_PILL } from "../src/main/chrome";
 import { notifySettingsUrl, parsePermission } from "../src/main/notifyPermission";
@@ -243,5 +244,52 @@ describe("window chrome (macOS)", () => {
     expect(NATIVE_TRAFFIC_POSITION.x).toBeGreaterThanOrEqual(TRAFFIC_PILL.left);
     expect(NATIVE_TRAFFIC_POSITION.x + 54).toBeLessThanOrEqual(TRAFFIC_PILL.left + TRAFFIC_PILL.width);
     expect(NATIVE_TRAFFIC_POSITION.y + 8).toBe(TRAFFIC_PILL.top + TRAFFIC_PILL.height / 2);
+  });
+});
+
+describe("SiteGrants", () => {
+  const dir = mkdtempSync(join(tmpdir(), "site-grants-"));
+  const file = join(dir, "nested", "grants.json");
+
+  it("remembers a site's answer across restarts, per site and per thing", () => {
+    const a = new SiteGrants(file);
+    expect(a.get("https://a.example", "camera")).toBeUndefined();
+    a.set("https://a.example", "camera", true);
+    a.set("https://a.example", "location", false);
+    a.set("https://b.example", "camera", false);
+    const b = new SiteGrants(file);
+    expect(b.get("https://a.example", "camera")).toBe(true);
+    expect(b.get("https://a.example", "location")).toBe(false);
+    expect(b.get("https://b.example", "camera")).toBe(false);
+    expect(b.get("https://b.example", "location")).toBeUndefined();
+  });
+
+  it("forgets everything when told to", () => {
+    const a = new SiteGrants(file);
+    a.clear();
+    expect(a.get("https://a.example", "camera")).toBeUndefined();
+    expect(new SiteGrants(file).get("https://a.example", "camera")).toBeUndefined();
+  });
+
+  it("reads a broken file as nothing said, and a site named like a prototype as a site", () => {
+    writeFileSync(file, "{ not json");
+    const a = new SiteGrants(file);
+    expect(a.get("__proto__", "polluted")).toBeUndefined();
+    writeFileSync(file, JSON.stringify({ "https://a.example": { camera: "yes", location: true } }));
+    const b = new SiteGrants(file);
+    expect(b.get("https://a.example", "camera")).toBeUndefined();
+    expect(b.get("https://a.example", "location")).toBe(true);
+  });
+});
+
+describe("RecentActs", () => {
+  it("counts a touch for its window, and only for who was touched", () => {
+    const acts = new RecentActs<object>(5000);
+    const site = {};
+    expect(acts.recent(site, 1000)).toBe(false);
+    acts.saw(site, 1000);
+    expect(acts.recent(site, 5999)).toBe(true);
+    expect(acts.recent(site, 6000)).toBe(false);
+    expect(acts.recent({}, 1000)).toBe(false);
   });
 });

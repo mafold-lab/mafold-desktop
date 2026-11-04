@@ -17,13 +17,17 @@ import {
 
 import { RateLimit, uniqueName } from "./limits";
 import { log, redact } from "./log";
-import { decideNavigation, decideWindowOpen, permissionAllowed, shellUserAgent } from "./policy";
+import { decideNavigation, decideWindowOpen, hardenSite, mayAttachSite, permissionAllowed, shellUserAgent } from "./policy";
 import type { Shell } from "./shell";
 import { accountChoice, accountLabel, KEYCHAIN_ACCESS_GROUP } from "./webauthn";
+import { SITE_PARTITION } from "../shared/desktopHost.generated";
 
 export const PARTITION = "persist:mafold";
 
 const popupLimit = new RateLimit(1500);
+/** Tabs are cheaper than windows, and a person can tap two links in a row; the
+ *  limit is for a page that doesn't stop. */
+const tabLimit = new RateLimit(250);
 
 /** Size of the child window a third-party popup (a mini-app's own sign-in) gets. */
 const CHILD = { width: 520, height: 720 };
@@ -31,26 +35,52 @@ const CHILD = { width: 520, height: 720 };
 /** Every web contents the app ever creates — main window, child popups. */
 export function guardAllContents(shell: Shell): void {
   app.on("web-contents-created", (_e, contents) => {
-    // No <webview> anywhere: the app never uses one, so any attempt is hostile.
-    contents.on("will-attach-webview", (e) => e.preventDefault());
+    // The one <webview> the app has: a site on a tab of the page, in the sites'
+    // own session, with nothing of the shell's. Any other attempt is hostile.
+    // (Prefs are what the guest gets: the tag's attributes count for nothing.)
+    contents.on("will-attach-webview", (e, prefs, params) => {
+      if (contents !== shell.page || !mayAttachSite(contents.getURL(), params, shell.cfg)) {
+        log("refused webview:", redact(params.src ?? ""));
+        e.preventDefault();
+        return;
+      }
+      hardenSite(prefs as Record<string, unknown>);
+    });
 
+    const site = contents.getType() === "webview";
     contents.setWindowOpenHandler((details) => {
-      const decision = decideWindowOpen(details.url, details.referrer?.url ?? "", shell.cfg);
+      const decision = decideWindowOpen(details.url, details.referrer?.url ?? "", shell.cfg, {
+        disposition: details.disposition,
+        features: details.features,
+        frameName: details.frameName,
+        site,
+        tabs: shell.isSubscribed("open-link"),
+      });
       if (decision === "deny") return { action: "deny" };
-      if (!popupLimit.allow("popup", Date.now())) {
+      if (site && !shell.siteActs.recent(contents, Date.now())) {
+        log("refused popup nobody asked for:", redact(details.url));
+        return { action: "deny" };
+      }
+      if (!(decision === "tab" ? tabLimit : popupLimit).allow("popup", Date.now())) {
         log("rate-limited popup:", redact(details.url));
+        return { action: "deny" };
+      }
+      if (decision === "tab") {
+        shell.emit("open-link", details.url);
         return { action: "deny" };
       }
       if (decision === "external") {
         shell.openExternal(details.url, "window-open");
         return { action: "deny" };
       }
+      // Its session is its opener's: a popup and its opener can't be apart.
+      const partition = contents.session === electronSession.fromPartition(SITE_PARTITION) ? SITE_PARTITION : PARTITION;
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
           ...CHILD,
           autoHideMenuBar: true,
-          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, partition: PARTITION },
+          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, partition },
         },
       };
     });
@@ -81,12 +111,17 @@ export function guardMainNavigation(contents: WebContents, shell: Shell, offline
   const handle = (e: Electron.Event, url: string) => {
     // The offline page is the one local document the window may show.
     if (url.split(/[?#]/)[0] === offlineUrl) return;
-    switch (decideNavigation(url, shell.cfg)) {
+    switch (decideNavigation(url, shell.cfg, shell.isSubscribed("open-link"))) {
       case "allow":
         return;
       case "download":
         e.preventDefault();
         contents.downloadURL(url);
+        break;
+      case "tab":
+        e.preventDefault();
+        if (tabLimit.allow("popup", Date.now())) shell.emit("open-link", url);
+        else log("rate-limited link:", redact(url));
         break;
       case "external":
         e.preventDefault();
@@ -139,9 +174,15 @@ export function guardSession(shell: Shell): Session {
     );
   });
 
-  // A sign-in that matches passkeys of more than one account (webauthn.ts).
-  // Electron keeps the request open until `callback` runs, so it runs exactly
-  // once whatever happens — a closed window, a dialog that throws.
+  guardPasskeyPicker(ses, shell);
+  guardDownloads(ses, shell);
+  return ses;
+}
+
+/** A sign-in that matches passkeys of more than one account (webauthn.ts).
+ *  Electron keeps the request open until `callback` runs, so it runs exactly
+ *  once whatever happens — a closed window, a dialog that throws. */
+export function guardPasskeyPicker(ses: Session, shell: Shell): void {
   ses.on("select-webauthn-account", (_e, details, callback) => {
     const choice = accountChoice(details.accounts);
     if ("pick" in choice) return callback(choice.pick);
@@ -166,7 +207,11 @@ export function guardSession(shell: Shell): Session {
       .catch((err: unknown) => log("passkey account picker failed:", String(err)))
       .finally(() => callback(picked));
   });
+}
 
+/** Every download lands in the Downloads folder under a name of its own, and
+ *  says so when it is done. */
+export function guardDownloads(ses: Session, shell: Shell): void {
   ses.on("will-download", (_e, item) => {
     const dir = shell.cfg.test?.downloads ?? app.getPath("downloads");
     const name = uniqueName(item.getFilename(), (n) => existsSync(join(dir, n)));
@@ -183,6 +228,4 @@ export function guardSession(shell: Shell): Session {
       n.show();
     });
   });
-
-  return ses;
 }

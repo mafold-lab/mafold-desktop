@@ -81,9 +81,9 @@ const coverDocument = async (app: ElectronApplication): Promise<string | null> =
  *  `{ error }`,外面的 poll 接着等(poll 的回调自己抛错是当场失败、自己不回是等到
  *  超时,都不重试)。拍之前先 invalidate():那层画面静止不动,逼它重画一帧给拍。
  *  `{ error }` 带着那层的样子(渲染进程崩了没有、还在不在加载、进程号、主窗口
- *  看不看得见):ubuntu 上 45 回里有 3 回整整 5 秒都拍不到(10-28「没回」、10-29 /
- *  10-30 UnknownVizError,都是整套里第一次起 Electron),只有一句错,分不出是那层
- *  没起来、崩了,还是起来了却一直不出帧。 */
+ *  看不看得见)。GPU 进程(合成在它那儿)没起来时也拍不到:先是不回,它到的那一刻
+ *  正在等的那次抛 UnknownVizError,再拍就有了。冷盘上第一次起 Electron 这要好几秒,
+ *  ubuntu 的 CI 上这条为此红过好几回,所以整套开跑前先起一次(warmup.ts)。 */
 const coverShot = (app: ElectronApplication) =>
   app.evaluate(async ({ webContents, BaseWindow }) => {
     const c = webContents.getAllWebContents().find((w) => w.getURL().startsWith("data:") && !w.getURL().includes("app-region"));

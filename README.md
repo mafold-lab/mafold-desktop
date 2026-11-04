@@ -19,6 +19,7 @@ cannot do, and hands it to the page through one object, `window.mafoldHost`:
 | `resume` | `on("resume")` — the machine woke up / the screen unlocked |
 | `daemon` | `daemon.status / enable / disable`, `on("daemon")` — run bots on this computer: the shell installs mafold-cli to `~/.mafold`, signs it in (a device code the page approves), gets it the connections key and starts its supervisor. Never touches a supervisor registered to another binary (`foreign`) |
 | `window-controls` | macOS only. `setWindowControls()`, `windowControl()`, `on("window")` — the window has no title bar; the page draws the close / minimise / zoom lights where mafold-mac drew them (a 58×44 pill at the head of the chat list, mafold-web `WindowLights.tsx`) and the system's own hide while it does. A page that doesn't draw them gets the system's in that same slot (`src/main/chrome.ts`) |
+| `site-tabs` | `on("open-link")`, `clearSiteData()`, the `<webview>` tag — a link opens as a tab on the app page: while the page listens, links come to it instead of the system browser; ⌘/Ctrl-click and shift-click always go there |
 | `update` | `on("update")`, `update.state / install / check` — the shell's own new version: checking, downloading (percent), ready (stays ready until the restart), error; restart into a ready one; check now (at most once a minute). The state comes again whenever the page starts listening (`src/main/updateState.ts`). A page that listens offers the restart itself: while the window is in front (shown, not minimised, focused) the shell posts no notification, and the tray's / menu's "Restart to Update" reach it as an `ask` (it knows what a restart would cut off); a page that listens to nothing (or no longer — its `off` tells the shell), is on its way out to another document, or stopped answering gets the restart at once. The restart comes back where the person was: the new version opens on the conversation (the garden, the moments) the window showed — the hash the web app writes, never the query, if it is under ten minutes old — in the window's place; and its first run says which version it came from (`updatedFrom`) (`src/main/relaunch.ts`) |
 
 The contract lives once, in [`client-shared/desktopHost.ts`](../client-shared/desktopHost.ts);
@@ -54,8 +55,20 @@ e2e/           a real Electron window against local fixture origins (Playwright)
 ## Security model
 
 - **One origin.** The main window shows the web origin and nothing else; every
-  other http(s) page goes to the system browser, `<api>/download/*` becomes a
-  download, every other scheme is refused.
+  other http(s) page, however the page gets there, goes to a tab while the page
+  takes links and to the system browser otherwise, `<api>/download/*` becomes a
+  download, every other scheme is refused. The one thing that shows another
+  site is a `<webview>` of the page (below).
+- **A site on a tab is a stranger in the page** (`security.ts`, `sites.ts`). Only
+  the page, on the web origin, gets a `<webview>`, only in `SITE_PARTITION` and
+  only showing the web; attributes count for nothing (`hardenSite`): no preload,
+  no bridge, sandboxed, its own cookies, apart from the Mafold sign-in. It can't
+  launch another program or get a device, it asks the person for the camera,
+  microphone, location and clipboard, and it opens tabs and popups only just
+  after the person touched it (Electron has no popup blocker). Going the other
+  way, the methods that would let the page read a site or act in it are sealed
+  on the guest: a card runs in the page's realm, and a site can be someone's
+  signed-in account. Signing out of Mafold clears what sites stored.
 - **The bridge exists only on the web origin's top frame.** The preload checks
   the document's origin before exposing anything, and the main process checks
   every message's sender again (`bridge.ts` `fromOurPage`): the main window's

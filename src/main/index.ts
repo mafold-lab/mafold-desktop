@@ -27,7 +27,9 @@ import { initNotifications, notificationsShown, notifyPermission, saw, updateNot
 import { staticPath } from "./paths";
 import { noteRelaunch, noteVersion, relaunchUrl, takeRelaunch } from "./relaunch";
 import { enablePasskeys, guardAllContents, guardSession } from "./security";
+import { enableShareExtension } from "./shareExtension";
 import { Shell } from "./shell";
+import { guardSites } from "./sites";
 import { createTray, refreshTray, trayLabels } from "./tray";
 import { initUpdater } from "./updater";
 import { createMainWindow, saveWindowState } from "./window";
@@ -113,6 +115,7 @@ if (!app.requestSingleInstanceLock()) {
     enablePasskeys(s, os);
     guardAllContents(s);
     guardSession(s);
+    guardSites(s);
     const userData = app.getPath("userData");
     // The light / dark picked in the app last time, before there is a window:
     // its ground and the page's first frame open in it (appearance.ts).
@@ -212,6 +215,9 @@ if (!app.requestSingleInstanceLock()) {
       },
     });
     registerBridge(s, os, makeAutostart(os), daemon, updater);
+    if (os === "macos" && app.isPackaged && app.isInApplicationsFolder()) {
+      void enableShareExtension(userData, join(process.resourcesPath, "..", "PlugIns", "MafoldShare.appex"));
+    }
 
     const resume = () => s.emit("resume");
     powerMonitor.on("resume", resume);

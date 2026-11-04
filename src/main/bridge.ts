@@ -12,6 +12,7 @@ import { log } from "./log";
 import { notifyPermission, openNotifySettings, showNotification, testNotification } from "./notify";
 import { originOf } from "./policy";
 import type { Shell } from "./shell";
+import { clearSiteData } from "./sites";
 import { readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
 import {
   IPC,
@@ -116,6 +117,8 @@ export function registerBridge(
   on(IPC.openExternal, (_e, url) => {
     if (typeof url === "string" && url.length <= 8192) shell.openExternal(url, "page");
   });
+
+  handle<boolean>(IPC.siteDataClear, () => clearSiteData(), false);
 
   on(IPC.setLocale, (_e, lang, strings) => {
     const l = readLocale(lang, strings);

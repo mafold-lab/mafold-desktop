@@ -24,7 +24,21 @@ export function attachContextMenu(contents: WebContents, shell: Shell): void {
       items.push({ type: "separator" });
     }
 
+    // A site on a tab: where the toolbar's buttons are, on the page itself.
+    if (contents.getType() === "webview") {
+      const nav = contents.navigationHistory;
+      items.push(
+        { label: t("desktop.context.back"), enabled: nav.canGoBack(), click: () => nav.goBack() },
+        { label: t("desktop.context.forward"), enabled: nav.canGoForward(), click: () => nav.goForward() },
+        { label: t("desktop.menu.reload"), click: () => contents.reload() },
+        { type: "separator" },
+      );
+    }
+
     if (p.linkURL && isExternalUrl(p.linkURL)) {
+      if (shell.isSubscribed("open-link") && /^https?:/.test(p.linkURL)) {
+        items.push({ label: t("desktop.context.openInTab"), click: () => shell.emit("open-link", p.linkURL) });
+      }
       items.push({ label: t("desktop.context.openLink"), click: () => shell.openExternal(p.linkURL, "context-menu") });
       items.push({ label: t("desktop.context.copyLink"), click: () => clipboard.writeText(p.linkURL) });
       items.push({ type: "separator" });

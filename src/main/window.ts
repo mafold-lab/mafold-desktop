@@ -77,6 +77,7 @@ export function createMainWindow(shell: Shell, opts: { startHidden: boolean; os:
       webSecurity: true,
       spellcheck: true,
       plugins: true, // the built-in PDF viewer behind attachment previews
+      webviewTag: true, // a site on a tab of the page; security.ts decides who gets one
       // Background throttling stays ON: a window closed to the tray stops
       // painting (with it off, a hidden window kept rendering every streamed
       // reply — ~23% CPU with six bots writing). Its timers, which the socket
@@ -110,16 +111,14 @@ export function createMainWindow(shell: Shell, opts: { startHidden: boolean; os:
     win.setTitle(title);
     frame.retitle(title);
   });
-  win.on("focus", () => {
-    if (!page.isDestroyed()) page.focus();
-  });
+  win.on("focus", () => shell.focusPage());
   const putAway = () => {
     view.setVisible(false);
     win.hide();
   };
   win.on("show", () => {
     view.setVisible(true);
-    if (win.isFocused() && !page.isDestroyed()) page.focus();
+    if (win.isFocused()) shell.focusPage();
   });
   // A view's page outlives its window unless it is closed with it.
   win.once("closed", () => {

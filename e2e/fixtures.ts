@@ -82,6 +82,39 @@ export async function startOrigins(): Promise<Origins> {
       res.end(html(`<script>parent.postMessage({ xo: typeof window.mafoldHost }, "*")</script>`));
       return;
     }
+    // A site on a tab of the page (sites.spec.ts): every way out of one.
+    if (req.url === "/site") {
+      res.writeHead(200, { "content-type": "text/html", "set-cookie": "site=1; Path=/" });
+      res.end(html(`
+<style>a, button { display: block; width: 300px; height: 40px }</style>
+<a id="tab" target="_blank" href="${apiOrigin}/opened">a link</a>
+<a id="mail" href="mailto:someone@example.com">mail</a>
+<a id="app" href="vscode://file/etc/passwd">another program</a>
+<a id="file" href="${apiOrigin}/download/report.txt">a file</a>
+<button id="popup" onclick="window.__popup = window.open('${apiOrigin}/signin', 'signin', 'width=420,height=420')">sign in</button>
+<button id="reserve" onclick="window.__popup = window.open(''); setTimeout(() => { window.__popup.location.href = '${apiOrigin}/signin'; }, 50)">sign in, address later</button>
+<script>addEventListener("message", (e) => { window.__said = e.data; });</script>`));
+      return;
+    }
+    // A site that says who it is (sitePage.spec.ts), with somewhere to go.
+    if (req.url === "/titled" || req.url === "/next") {
+      const pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+      const title = req.url === "/titled" ? "The site's own title" : "The next page";
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><link rel="icon" href="${pixel}"></head>
+<body style="margin:0;font:18px sans-serif;background:#f6f1e7;color:#2a2622"><h1 style="padding:24px">${title}</h1><a id="next" href="${apiOrigin}/next" style="display:block;padding:24px">next page</a></body></html>`);
+      return;
+    }
+    if (req.url === "/signin") {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(html(`<p id="signin">sign in</p><script>window.opener.postMessage("signed in", "*")</script>`));
+      return;
+    }
+    // A checkout's way back, the server's kind (sitePage.spec.ts).
+    if (req.url?.startsWith("/redirect?to=")) {
+      res.writeHead(302, { location: decodeURIComponent(req.url.slice("/redirect?to=".length)) }).end();
+      return;
+    }
     res.writeHead(200, { "content-type": "text/html" });
     res.end(html(`<p id="third">third party</p>`));
   });

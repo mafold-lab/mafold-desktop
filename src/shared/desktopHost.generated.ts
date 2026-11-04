@@ -93,6 +93,12 @@ export const HOST_CAPS = [
   // before it says whether it draws them, and the window goes down to phone
   // width once it has. Without it the page draws its lights at every width.
   "window-titlebar",
+  // `site-tabs` — a link opens as a tab on the app page: the page draws the
+  // tab and a `<webview>` in `SITE_PARTITION` (the shell refuses any other),
+  // and listens to `on("open-link")`, which is what makes links come to it:
+  // with nobody listening they go to the system browser, as in a shell without
+  // the cap. `clearSiteData` forgets what those sites stored.
+  "site-tabs",
   // `update` — the shell's own new version: `on("update")` (checking,
   // downloading, ready, error) and `update` (restart into it, check now). Only
   // the shell has a version to install: the page updates by being the live site.
@@ -140,7 +146,10 @@ export type HostCommand =
   | "focus-composer"
   | "settings"
   | "next-chat"
-  | "prev-chat";
+  | "prev-chat"
+  // `site-tabs`: pressed in a site, whose keys never reach the page.
+  | "focus-address"
+  | "close-tab";
 
 export const HOST_COMMANDS: readonly HostCommand[] = [
   "new-chat",
@@ -149,6 +158,8 @@ export const HOST_COMMANDS: readonly HostCommand[] = [
   "settings",
   "next-chat",
   "prev-chat",
+  "focus-address",
+  "close-tab",
 ];
 
 export type Appearance = "light" | "dark" | "system";
@@ -158,7 +169,12 @@ export interface OAuthResult {
   error?: string;
 }
 
-export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs";
+export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs" | "open-link";
+
+/** Where sites on the app page keep their logins (`site-tabs`). Never the
+ *  page's own session: a site can't see the Mafold sign-in, and nothing a site
+ *  stores reaches the page. */
+export const SITE_PARTITION = "persist:mafold-sites";
 
 /**
  * The shell's own update, as far as it has got. `ready` stays until the shell
@@ -680,6 +696,9 @@ export interface MafoldHost {
    *  of restarting. So listen only while the page does offer the restart, and
    *  call the returned `off` once it no longer does — the shell hears that. */
   on(ev: "update", cb: (u: HostUpdate) => void): () => void;
+  /** `site-tabs`: a link to open. While someone listens links come here;
+   *  call the returned `off` and they go to the system browser again. */
+  on(ev: "open-link", cb: (url: string) => void): () => void;
   /** The page is (true) / is no longer (false) drawing the window's lights;
    *  the shell hides / shows the system's own accordingly. */
   setWindowControls(drawn: boolean): void;
@@ -687,6 +706,9 @@ export interface MafoldHost {
   /** `window-titlebar` only — check the cap; an older shell has no such
    *  method. Sent before `setWindowControls`, and again on every change. */
   setWindowLayout?(layout: WindowLayout): void;
+  /** `site-tabs` only — check the cap; an older shell has no such method.
+   *  Everything sites stored here, and what they were allowed. */
+  clearSiteData?(): Promise<boolean>;
   autostart: {
     get(): Promise<boolean>;
     set(on: boolean): Promise<void>;
@@ -840,6 +862,7 @@ export const IPC = {
   updateState: "mafold-host:update-state",
   updateInstall: "mafold-host:update-install",
   updateCheck: "mafold-host:update-check",
+  siteDataClear: "mafold-host:site-data-clear",
   /** main → renderer */
   event: "mafold-host:event",
 } as const;

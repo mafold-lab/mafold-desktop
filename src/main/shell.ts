@@ -4,12 +4,12 @@
 // (window, tray, menu, bridge, …) don't import each other in circles.
 
 import { appendFileSync } from "node:fs";
-import { shell as electronShell, type BaseWindow, type WebContents } from "electron";
+import { shell as electronShell, webContents as electronWebContents, type BaseWindow, type WebContents } from "electron";
 
 import type { ShellConfig } from "./config";
 import type { Strings } from "./i18n";
 import type { WindowFrame } from "./frame";
-import { RateLimit } from "./limits";
+import { RateLimit, RecentActs } from "./limits";
 import { log, redact } from "./log";
 import { PendingAuth } from "./oauth";
 import { isExternalUrl } from "./policy";
@@ -27,6 +27,9 @@ export class Shell {
   pageHung = false;
   unread: UnreadSummary = { total: 0, top: [] };
   readonly pending = new PendingAuth();
+  /** The sites on tabs the person just touched: a site may open a tab or a
+   *  popup only then, as in a browser (sites.ts, security.ts). */
+  readonly siteActs = new RecentActs<WebContents>(5000);
   private externalLimit = new RateLimit(1000);
   private subscribed = new Set<HostEventName>();
   private queuedNavigate: string | null = null;
@@ -60,8 +63,16 @@ export class Shell {
     if (w.isMinimized()) w.restore();
     w.show();
     w.focus();
-    // A BaseWindow does not hand the keyboard to its page by itself (window.ts).
-    if (this.page && !this.page.isDestroyed()) this.page.focus();
+    this.focusPage();
+  }
+
+  /** A BaseWindow does not hand the keyboard to its page by itself (window.ts).
+   *  A site on a tab that had it gets it back: it is in the page, and focusing
+   *  the page would take the keyboard away from it. */
+  focusPage(): void {
+    const had = electronWebContents.getFocusedWebContents();
+    if (had && !had.isDestroyed() && had.getType() === "webview") had.focus();
+    else if (this.page && !this.page.isDestroyed()) this.page.focus();
   }
 
   private subscribeHooks = new Set<(name: HostEventName) => void>();

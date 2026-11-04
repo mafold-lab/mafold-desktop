@@ -98,12 +98,13 @@ if (webOrigin && window.location.origin === webOrigin) {
     setUnread: (u: UnreadSummary) => ipcRenderer.send(IPC.setUnread, u),
     notify: (n: HostNotification) => ipcRenderer.send(IPC.notify, n),
     openExternal: (url: string) => ipcRenderer.send(IPC.openExternal, url),
+    clearSiteData: (): Promise<boolean> => ipcRenderer.invoke(IPC.siteDataClear),
     takeShare: (): Promise<HostShare | null> => ipcRenderer.invoke(IPC.shareTake),
     oauth: (authorizeUrl: string, state: string): Promise<OAuthResult> => ipcRenderer.invoke(IPC.oauth, authorizeUrl, state),
     setLocale: (lang: string, strings: Record<string, string>) => ipcRenderer.send(IPC.setLocale, lang, strings),
     setAppearance: (mode: Appearance) => ipcRenderer.send(IPC.setAppearance, mode),
     on: ((name: HostEventName, cb: (payload?: string) => void) => {
-      if (name === "navigate") return subscribe(name, (p) => typeof p === "string" && cb(p));
+      if (name === "navigate" || name === "open-link") return subscribe(name, (p) => typeof p === "string" && cb(p));
       if (name === "command") return subscribe(name, (p) => typeof p === "string" && (cb as (c: HostCommand) => void)(p as HostCommand));
       if (name === "resume" || name === "share") return subscribe(name, () => (cb as () => void)());
       if (name === "daemon") {
