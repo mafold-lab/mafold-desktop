@@ -5,8 +5,10 @@
 
 import { app, BrowserWindow, Menu, webContents, type MenuItemConstructorOptions } from "electron";
 
+import { zoomPage } from "./pageZoom";
 import type { Shell } from "./shell";
 import { restartToUpdate } from "./updater";
+import type { ZoomStep } from "./zoom";
 import type { HostCommand } from "../shared/desktopHost.generated";
 
 export function buildMenu(shell: Shell, os: "macos" | "windows" | "linux"): Menu {
@@ -53,27 +55,27 @@ export function buildMenu(shell: Shell, os: "macos" | "windows" | "linux"): Menu
   // of its own, security.ts) or a site on a tab of the page when it has the
   // keyboard, otherwise the page — a view in the main window (window.ts),
   // which the roles for them can't find (they act on a BrowserWindow's own
-  // page), nor the bar or the cover beside it. Zoom steps as the roles did
-  // (half a level).
+  // page), nor the bar or the cover beside it. Zoom steps as Chrome's does,
+  // through its sizes (zoom.ts).
   const page = () => {
     const f = webContents.getFocusedWebContents();
     if (f && !f.isDestroyed() && f !== shell.page && (f.getType() === "webview" || BrowserWindow.fromWebContents(f))) return f;
     return shell.page && !shell.page.isDestroyed() ? shell.page : null;
   };
-  const zoomBy = (d: number) => () => {
+  const zoomBy = (step: ZoomStep) => () => {
     const p = page();
-    if (p) p.setZoomLevel(d === 0 ? 0 : p.getZoomLevel() + d);
+    if (p) zoomPage(shell, p, step);
   };
   const view: MenuItemConstructorOptions = {
     label: t("desktop.menu.view"),
     submenu: [
       { label: t("desktop.menu.reload"), accelerator: "CmdOrCtrl+R", click: () => page()?.reload() },
       { type: "separator" },
-      { label: t("desktop.menu.actualSize"), accelerator: "CmdOrCtrl+0", click: zoomBy(0) },
-      { label: t("desktop.menu.zoomIn"), accelerator: "CmdOrCtrl+Plus", click: zoomBy(0.5) },
+      { label: t("desktop.menu.actualSize"), accelerator: "CmdOrCtrl+0", click: zoomBy("reset") },
+      { label: t("desktop.menu.zoomIn"), accelerator: "CmdOrCtrl+Plus", click: zoomBy("in") },
       // ⌘= is what people press for ⌘+ (no ⇧): the same, not shown.
-      { label: t("desktop.menu.zoomIn"), accelerator: "CmdOrCtrl+=", click: zoomBy(0.5), visible: false, acceleratorWorksWhenHidden: true },
-      { label: t("desktop.menu.zoomOut"), accelerator: "CmdOrCtrl+-", click: zoomBy(-0.5) },
+      { label: t("desktop.menu.zoomIn"), accelerator: "CmdOrCtrl+=", click: zoomBy("in"), visible: false, acceleratorWorksWhenHidden: true },
+      { label: t("desktop.menu.zoomOut"), accelerator: "CmdOrCtrl+-", click: zoomBy("out") },
       { type: "separator" },
       { role: "togglefullscreen", label: t("desktop.menu.fullScreen") },
     ],

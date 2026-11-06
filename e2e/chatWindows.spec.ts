@@ -10,6 +10,7 @@ import { launch, startOrigins, type Launched, type Origins } from "./fixtures";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
+const CH = "33333333-3333-4333-8333-333333333333";
 
 let origins: Origins;
 let l: Launched;
@@ -23,11 +24,6 @@ test.afterAll(async () => {
 test.beforeEach(async () => {
   l = await launch(origins.web, origins.api);
   await l.page.waitForSelector("#h");
-  await l.page.evaluate(() => {
-    const seen: string[][] = [];
-    (window as unknown as { __chats: string[][] }).__chats = seen;
-    mafoldHost.on("chat-windows", (ids: string[]) => seen.push(ids));
-  });
 });
 test.afterEach(async () => {
   await l.app.close();
@@ -36,20 +32,25 @@ test.afterEach(async () => {
 declare const mafoldHost: {
   caps: string[];
   soloChat?: string;
-  openChatWindow(c: string, dropped?: boolean): void;
+  soloChannel?: string;
+  openChatWindow(c: string, dropped?: boolean, channel?: string): void;
   closeChatWindow(): void;
-  on(e: "chat-windows", cb: (ids: string[]) => void): () => void;
   setUnread(u: unknown): void;
 };
 
 const open = () => l.app.evaluate(() => (globalThis as unknown as { __mafoldTest: { chatWindows(): string[] } }).__mafoldTest.chatWindows());
-const told = (p: Page) => p.evaluate(() => (window as unknown as { __chats: string[][] }).__chats.at(-1) ?? []);
 
 async function pageOf(conv: string): Promise<Page> {
   await expect.poll(() => l.app.windows().some((p) => p.url().endsWith(`#${conv}`))).toBe(true);
   const page = l.app.windows().find((p) => p.url().endsWith(`#${conv}`))!;
   await page.waitForSelector("#h");
   return page;
+}
+
+/** Every window on `conv`, by what it says it shows; "" for the whole conversation. */
+async function shownOf(conv: string): Promise<string[]> {
+  const pages = l.app.windows().filter((p) => p.url().endsWith(`#${conv}`));
+  return (await Promise.all(pages.map((p) => p.evaluate(() => mafoldHost.soloChannel ?? "")))).sort();
 }
 
 // The window can be gone before the evaluate that closed it reports back, so that
@@ -60,9 +61,9 @@ test("the page opens a conversation in its own window, which knows what it is", 
   await l.page.evaluate((c) => mafoldHost.openChatWindow(c), A);
   const solo = await pageOf(A);
   expect(await open()).toEqual([A]);
-  await expect.poll(() => told(l.page)).toEqual([A]);
   expect(await solo.evaluate(() => mafoldHost.soloChat)).toBe(A);
-  expect(await solo.evaluate(() => [...mafoldHost.caps].sort())).toEqual(["chat-windows", "external-links", "notify"]);
+  expect(await solo.evaluate(() => mafoldHost.soloChannel)).toBeUndefined();
+  expect(await solo.evaluate(() => [...mafoldHost.caps].sort())).toEqual(["chat-channel-windows", "chat-windows", "external-links", "notify"]);
   // The main page isn't one.
   expect(await l.page.evaluate(() => mafoldHost.soloChat)).toBeUndefined();
   expect(await l.page.evaluate(() => mafoldHost.caps.includes("chat-windows"))).toBe(true);
@@ -87,7 +88,8 @@ test("several stand at once, each where it was dropped", async () => {
   await pageOf(B);
   const bounds = await l.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.webContents.getURL().includes("#")).map((w) => w.getBounds()));
   expect(bounds).toHaveLength(2);
-  expect(Math.abs(bounds[0].x - bounds[1].x)).toBeGreaterThanOrEqual(400);
+  // Kept on the screen: CI's Mac is 1024 wide, which leaves a 760 window 264 to move in.
+  expect(Math.abs(bounds[0].x - bounds[1].x)).toBeGreaterThanOrEqual(200);
 });
 
 test("nothing but a conversation's id opens one", async () => {
@@ -97,15 +99,39 @@ test("nothing but a conversation's id opens one", async () => {
   expect(await open()).toEqual([]);
 });
 
+test("one conversation stands in several windows, a channel in each, beside the whole of it", async () => {
+  await l.page.evaluate(([c, ch]) => {
+    mafoldHost.openChatWindow(c);
+    mafoldHost.openChatWindow(c, false, ch);
+    mafoldHost.openChatWindow(c, false, "all");
+  }, [A, CH]);
+  await expect.poll(open).toHaveLength(3);
+  await pageOf(A);
+  await expect.poll(() => shownOf(A)).toEqual(["", CH, "all"].sort());
+  // The same channel again is the same window.
+  await l.page.evaluate(([c, ch]) => mafoldHost.openChatWindow(c, false, ch), [A, CH]);
+  await l.page.waitForTimeout(300);
+  expect(await open()).toHaveLength(3);
+});
+
+test("a conversation's window sends its channels to windows of their own", async () => {
+  await l.page.evaluate((c) => mafoldHost.openChatWindow(c), A);
+  const solo = await pageOf(A);
+  await solo.evaluate(([c, ch]) => mafoldHost.openChatWindow(c, true, ch), [A, CH]);
+  await expect.poll(open).toEqual([A, `${A}/${CH}`]);
+});
+
+test("a channel that is no channel opens the whole conversation", async () => {
+  await l.page.evaluate((c) => mafoldHost.openChatWindow(c, false, "../settings"), A);
+  await pageOf(A);
+  expect(await open()).toEqual([A]);
+});
+
 test("a conversation's window can't speak for the main one", async () => {
   await l.page.evaluate((c) => mafoldHost.openChatWindow(c), A);
   const solo = await pageOf(A);
-  await solo.evaluate((c) => {
-    mafoldHost.openChatWindow(c);
-    mafoldHost.setUnread({ total: 7, top: [] });
-  }, B);
+  await solo.evaluate(() => mafoldHost.setUnread({ total: 7, top: [] }));
   await solo.waitForTimeout(300);
-  expect(await open()).toEqual([A]);
   const unread = await l.app.evaluate(() => (globalThis as unknown as { __mafoldTest: { unread(): { total: number } } }).__mafoldTest.unread().total);
   expect(unread).toBe(0);
 });
@@ -128,7 +154,6 @@ test("it closes for real, from its own page; the main window stays", async () =>
   const solo = await pageOf(A);
   await closeFrom(solo);
   await expect.poll(open).toEqual([]);
-  await expect.poll(() => told(l.page)).toEqual([]);
   expect(await l.page.evaluate(() => document.title)).toBeTruthy();
 });
 

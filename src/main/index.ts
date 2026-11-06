@@ -283,7 +283,7 @@ if (!app.requestSingleInstanceLock()) {
         page: () => s.page,
         // The conversations in windows of their own (chatWindows.ts).
         chatWindows: () => chats.ids(),
-        openChatWindow: (conv: string, at?: { x: number; y: number }) => chats.show(conv, at),
+        openChatWindow: (conv: string, at?: { x: number; y: number }) => chats.show({ conv }, at),
       };
     }
   });

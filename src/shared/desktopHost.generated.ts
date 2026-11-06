@@ -100,11 +100,15 @@ export const HOST_CAPS = [
   // the cap. `clearSiteData` forgets what those sites stored.
   "site-tabs",
   // `chat-windows` — a conversation in a window of its own: `openChatWindow`
-  // opens one (or brings it up), `on("chat-windows")` says which are open. Such
-  // a window is the web app again with `soloChat` set and only the caps of
-  // `CHAT_WINDOW_CAPS`; `closeChatWindow` closes it from inside it, and from the
-  // main window closes them all (signing out).
+  // opens one (or brings it up). Such a window is the web app again with
+  // `soloChat` set and only the caps of `CHAT_WINDOW_CAPS`; `closeChatWindow`
+  // closes it from inside it, and from the main window closes them all (signing
+  // out). The main window stays free to show the same conversation.
   "chat-windows",
+  // `chat-channel-windows` — one channel of a conversation in a window of its
+  // own: `openChatWindow` takes the channel, from the main window or from a
+  // conversation's own, and the window says which by `soloChannel`.
+  "chat-channel-windows",
   // `update` — the shell's own new version: `on("update")` (checking,
   // downloading, ready, error) and `update` (restart into it, check now). Only
   // the shell has a version to install: the page updates by being the live site.
@@ -116,7 +120,11 @@ export type HostCap = (typeof HOST_CAPS)[number];
 /** What a conversation's own window offers. The badge, the tray and everything
  *  about this computer stay the main window's. `notify` is here so that the page
  *  doesn't turn to Web Push; the shell drops it, the main window notifies. */
-export const CHAT_WINDOW_CAPS: readonly HostCap[] = ["notify", "external-links", "chat-windows"];
+export const CHAT_WINDOW_CAPS: readonly HostCap[] = ["notify", "external-links", "chat-windows", "chat-channel-windows"];
+
+/** `soloChannel` and `openChatWindow`'s channel for a conversation's #all, which
+ *  has no channel id. */
+export const ALL_CHANNEL = "all";
 
 export type HostOs = "macos" | "windows";
 
@@ -138,6 +146,8 @@ export interface UnreadSummary {
 export interface HostNotification {
   convId: string;
   msgId?: string;
+  /** Absent: the conversation's #all. */
+  channelId?: string;
   title: string;
   body: string;
   silent: boolean;
@@ -180,7 +190,7 @@ export interface OAuthResult {
   error?: string;
 }
 
-export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs" | "open-link" | "chat-windows";
+export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs" | "open-link";
 
 /** Where sites on the app page keep their logins (`site-tabs`). Never the
  *  page's own session: a site can't see the Mafold sign-in, and nothing a site
@@ -676,6 +686,9 @@ export interface MafoldHost {
   readonly caps: readonly HostCap[];
   /** In a conversation's own window (`chat-windows`): that conversation. */
   readonly soloChat?: string;
+  /** In one channel's own window (`chat-channel-windows`): that channel, or
+   *  `ALL_CHANNEL`. Absent in a window for the whole conversation. */
+  readonly soloChannel?: string;
 
   setUnread(u: UnreadSummary): void;
   notify(n: HostNotification): void;
@@ -683,8 +696,9 @@ export interface MafoldHost {
   openExternal(url: string): void;
   /** `chat-windows` only — an older shell has no such method. Opens the
    *  conversation in its own window, or brings that window up. `dropped`: it was
-   *  dragged out, the window lands under the cursor (the shell reads where). */
-  openChatWindow?(convId: string, dropped?: boolean): void;
+   *  dragged out, the window lands under the cursor (the shell reads where).
+   *  `channel` (`chat-channel-windows`): a window for that channel alone. */
+  openChatWindow?(convId: string, dropped?: boolean, channel?: string): void;
   /** `chat-windows` only: see the cap. */
   closeChatWindow?(): void;
   /** Open `authorizeUrl` in the system browser and resolve with what the
@@ -718,9 +732,6 @@ export interface MafoldHost {
   /** `site-tabs`: a link to open. While someone listens links come here;
    *  call the returned `off` and they go to the system browser again. */
   on(ev: "open-link", cb: (url: string) => void): () => void;
-  /** `chat-windows`: the conversations in windows of their own, on subscribing
-   *  and after every change. */
-  on(ev: "chat-windows", cb: (convIds: string[]) => void): () => void;
   /** The page is (true) / is no longer (false) drawing the window's lights;
    *  the shell hides / shows the system's own accordingly. */
   setWindowControls(drawn: boolean): void;

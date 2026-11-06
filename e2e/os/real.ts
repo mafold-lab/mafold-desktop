@@ -160,6 +160,19 @@ switch ($env:CMD) {
   }
 }`;
 
+const WHEEL_WIN = `${DPI}
+Add-Type -Namespace MafoldE2e -Name Wheel -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+[DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, int data, System.UIntPtr extra);
+[DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra);
+'@
+$a = $env:ARGS -split ' ' | ForEach-Object { [int]$_ }
+function Ctrl($up) { if ($a[3]) { [MafoldE2e.Wheel]::keybd_event(0x11, 0, $up, [System.UIntPtr]::Zero); Start-Sleep -Milliseconds 40 } }
+[void][MafoldE2e.Wheel]::SetCursorPos($a[0], $a[1]); Start-Sleep -Milliseconds 80
+Ctrl 0
+[MafoldE2e.Wheel]::mouse_event(0x800, 0, 0, 120 * $a[2], [System.UIntPtr]::Zero); Start-Sleep -Milliseconds 40
+Ctrl 2`;
+
 function powershell(script: string, env: Record<string, string>, timeoutMs = 60_000) {
   return run("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], { env, timeoutMs });
 }
@@ -197,6 +210,22 @@ export async function mouse(cmd: MouseCmd, scale = 1): Promise<Outcome> {
     return r.code === 0 ? { ok: true } : notPermitted(`mouse ${name}: exit ${r.code} ${r.err.trim().slice(0, 400)}`);
   }
   return notPermitted("no real input on Linux");
+}
+
+/** One real notch of the mouse wheel at a screen point (`1` is up), Ctrl held or
+ *  not. Not webContents.sendInputEvent: that sends each wheel event twice. Linux
+ *  through xdotool, on the suite's X display. No macOS: its wheel doesn't zoom. */
+export async function wheelNotch(x: number, y: number, ticks: 1 | -1, ctrl: boolean, scale = 1): Promise<Outcome> {
+  if (OS === "windows") {
+    const r = await powershell(WHEEL_WIN, { ARGS: [Math.round(x * scale), Math.round(y * scale), ticks, ctrl ? 1 : 0].join(" ") });
+    return r.code === 0 ? { ok: true } : notPermitted(`wheel: exit ${r.code} ${r.err.trim().slice(0, 400)}`);
+  }
+  if (OS === "linux") {
+    const notch = ["click", ticks === 1 ? "4" : "5"];
+    const r = await run("xdotool", ["mousemove", String(Math.round(x)), String(Math.round(y)), ...(ctrl ? ["keydown", "ctrl", ...notch, "keyup", "ctrl"] : notch)]);
+    return r.code === 0 ? { ok: true } : notPermitted(`xdotool: exit ${r.code} ${r.err.trim().slice(0, 400)}`);
+  }
+  return notPermitted("macOS's wheel doesn't zoom");
 }
 
 /** The title bar's own close / minimise / zoom buttons of process `pid`'s

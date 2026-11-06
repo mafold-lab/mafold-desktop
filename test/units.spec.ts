@@ -11,6 +11,7 @@ import { clip, RateLimit, RecentActs, uniqueName } from "../src/main/limits";
 import { badgePng, badgeText, encodePng, renderBadge } from "../src/main/png";
 import { SiteGrants } from "../src/main/siteGrants";
 import { fit, MAC_MIN_SIZE, MIN_SIZE, minSizeFor } from "../src/main/windowState";
+import { nextZoom, readSavedZoom, saveZoom } from "../src/main/zoom";
 import { arrangedBounds, capsFor, framePlan, NATIVE_TRAFFIC_POSITION, TITLE_BAR, TRAFFIC_PILL } from "../src/main/chrome";
 import { notifySettingsUrl, parsePermission } from "../src/main/notifyPermission";
 import { APP_ID } from "../src/main/config";
@@ -180,6 +181,44 @@ describe("appearance kept across launches", () => {
   });
   it("saving where it can't write fails nothing", () => {
     expect(() => saveAppearance(join(userData(), "no-such-dir"), "dark")).not.toThrow();
+  });
+});
+
+describe("page zoom, Chrome's way", () => {
+  const walk = (from: number, step: "in" | "out", n: number) => {
+    const seen: number[] = [];
+    for (let f = from, i = 0; i < n; i++) seen.push((f = nextZoom(f, step)));
+    return seen.map((f) => Math.round(f * 100));
+  };
+  it("steps through Chrome's sizes, not by a fixed amount", () => {
+    expect(walk(1, "in", 9)).toEqual([110, 125, 150, 175, 200, 250, 300, 400, 500]);
+    expect(walk(1, "out", 7)).toEqual([90, 80, 75, 67, 50, 33, 25]);
+  });
+  it("stops at the ends of the ladder", () => {
+    expect(nextZoom(5, "in")).toBe(5);
+    expect(nextZoom(0.25, "out")).toBe(0.25);
+  });
+  it("from a size between two, goes to the nearer one that way", () => {
+    // 1.2^0.5 — where the old half-level steps left people.
+    expect(nextZoom(1.0954, "in")).toBe(1.1);
+    expect(nextZoom(1.0954, "out")).toBe(1);
+    expect(nextZoom(1.0999, "in")).toBe(1.25); // the same as 110%
+  });
+  it("reset, or a size that makes no sense, is 100%", () => {
+    expect(nextZoom(2.5, "reset")).toBe(1);
+    expect(nextZoom(Number.NaN, "in")).toBe(1);
+    expect(nextZoom(0, "out")).toBe(1);
+  });
+  it("the size is kept across launches; anything unreadable is 100%", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mafold-zoom-"));
+    expect(readSavedZoom(dir)).toBe(1);
+    saveZoom(dir, 1.25);
+    expect(readSavedZoom(dir)).toBe(1.25);
+    for (const text of ["{not json", "null", JSON.stringify({ factor: "1.5" }), JSON.stringify({ factor: 9 }), JSON.stringify({ factor: 0.1 })]) {
+      writeFileSync(join(dir, "zoom.json"), text);
+      expect(readSavedZoom(dir)).toBe(1);
+    }
+    expect(() => saveZoom(join(dir, "no-such-dir"), 2)).not.toThrow();
   });
 });
 

@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 import { launch, startOrigins, type Launched, type Origins } from "./fixtures";
-import { captureWindow } from "./os/real";
+import { captureWindow, wheelNotch } from "./os/real";
 
 const WEB_DIR = process.env.MAFOLD_DESKTOP_SHOTS_PAGE ?? join(__dirname, "web");
 const HAVE_PAGE = existsSync(join(WEB_DIR, "index.html")) && existsSync(join(WEB_DIR, "harness.js"));
@@ -427,4 +427,19 @@ test("a narrow window: the page covers the chat", async () => {
   await l.app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].setSize(1440, 900));
   await settle(900);
   expect(await run(id, "window.__same")).toBe("still here");
+});
+
+test("Ctrl + the wheel zooms the site on the tab, and leaves the app's kept size alone", async () => {
+  test.skip(process.platform === "darwin", "Chrome's wheel doesn't zoom on macOS either");
+  await tap(url("/titled"));
+  const id = await guestOn("/titled");
+  const size = () => l.app.evaluate(({ webContents }, id) => webContents.fromId(id)!.getZoomFactor(), id);
+  const box = await page.locator("webview").first().boundingBox();
+  const at = await l.app.evaluate(({ BaseWindow, screen }) => {
+    const b = BaseWindow.getAllWindows()[0].getContentBounds();
+    return { x: b.x, y: b.y, scale: screen.getDisplayMatching(b).scaleFactor };
+  });
+  expect(await wheelNotch(at.x + box!.x + box!.width / 2, at.y + box!.y + box!.height / 2, 1, true, at.scale)).toEqual({ ok: true });
+  await expect.poll(size).toBeCloseTo(1.1);
+  expect(existsSync(join(l.dirs.userData, "zoom.json"))).toBe(false);
 });

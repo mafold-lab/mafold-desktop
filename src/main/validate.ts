@@ -4,7 +4,7 @@
 // clipped, before anything native sees it. Pure, so test/validate.spec.ts
 // covers it without Electron.
 
-import { HOST_COMMANDS, WINDOW_ACTIONS, WINDOW_LAYOUTS, type Appearance, type HostEventName, type HostNotification, type UnreadSummary, type WindowAction, type WindowLayout } from "../shared/desktopHost.generated";
+import { ALL_CHANNEL, HOST_COMMANDS, WINDOW_ACTIONS, WINDOW_LAYOUTS, type Appearance, type HostEventName, type HostNotification, type UnreadSummary, type WindowAction, type WindowLayout } from "../shared/desktopHost.generated";
 import { clip } from "./limits";
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -14,6 +14,9 @@ const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === "
 const count = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(Math.floor(v), 1_000_000)) : 0);
 
 export const readConvId = (v: unknown): string | null => (typeof v === "string" && ID_RE.test(v) ? v : null);
+
+/** `openChatWindow`'s channel: undefined is the whole conversation. */
+export const readChatChannel = (v: unknown): string | undefined => (v === ALL_CHANNEL ? ALL_CHANNEL : (readConvId(v) ?? undefined));
 
 export function readUnread(v: unknown): UnreadSummary | null {
   const o = obj(v);
@@ -49,13 +52,14 @@ export function readNotification(v: unknown): HostNotification | null {
   const msgId = typeof o.msgId === "string" && ID_RE.test(o.msgId) ? o.msgId : undefined;
   const title = clip(o.title, 120);
   if (!title) return null;
-  return { convId: o.convId, msgId, title, body: clip(o.body, 400), silent: o.silent === true };
+  const channelId = readConvId(o.channelId) ?? undefined;
+  return { convId: o.convId, msgId, channelId, title, body: clip(o.body, 400), silent: o.silent === true };
 }
 
 export const readAppearance = (v: unknown): Appearance | null => (v === "light" || v === "dark" || v === "system" ? v : null);
 
 export const readEventName = (v: unknown): HostEventName | null =>
-  v === "navigate" || v === "share" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" || v === "update" || v === "logs" || v === "open-link" || v === "chat-windows" ? v : null;
+  v === "navigate" || v === "share" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" || v === "update" || v === "logs" || v === "open-link" ? v : null;
 
 export const readWindowAction = (v: unknown): WindowAction | null =>
   typeof v === "string" && (WINDOW_ACTIONS as readonly string[]).includes(v) ? (v as WindowAction) : null;

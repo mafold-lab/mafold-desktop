@@ -20,6 +20,7 @@ import { DEFAULT_SIZE, fit, MIN_SIZE, minSizeFor, readSaved, writeSaved } from "
 import { capsFor, NATIVE_TRAFFIC_POSITION } from "./chrome";
 import { WindowFrame } from "./frame";
 import { closePage } from "./pageClose";
+import { restoreZoom, zoomOnWheel } from "./pageZoom";
 import { APP_GROUND } from "../shared/appGround.generated";
 
 export const offlineUrl = () => pathToFileURL(staticPath("offline.html")).href;
@@ -173,6 +174,9 @@ export function createMainWindow(shell: Shell, opts: { startHidden: boolean; os:
     if (e.isMainFrame && !e.isSameDocument) shell.leavingDocument();
   });
   page.on("did-navigate", newDocument);
+  // Ctrl + the wheel zooms, and the app opens at the size it was left at (pageZoom.ts).
+  zoomOnWheel(shell, page);
+  restoreZoom(shell, page);
   page.on("did-stop-loading", () => shell.stayed());
 
   // A page that stopped answering cannot take the update's restart from the

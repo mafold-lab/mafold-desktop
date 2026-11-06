@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { cascadedBounds, droppedBounds, readChatWindows, remembered, writeChatWindows, type SavedChatWindow } from "../src/main/chatWindowPlan";
+import { cascadedBounds, chatWindowKey, droppedBounds, readChatWindows, remembered, writeChatWindows, type SavedChatWindow } from "../src/main/chatWindowPlan";
 
 const area = { x: 1920, y: 0, width: 2560, height: 1400 };
 const size = { width: 420, height: 680 };
@@ -36,6 +36,10 @@ describe("saved windows", () => {
   it("keeps one entry for a conversation, the latest first", () => {
     const list = remembered([saved("a"), saved("b")], saved("b", false));
     expect(list.map((s) => [s.conv, s.open])).toEqual([["b", false], ["a", true]]);
+  });
+  it("keeps a channel's window apart from its conversation's", () => {
+    const list = remembered(remembered([saved("a")], { ...saved("a"), channel: "x" }), { ...saved("a", false), channel: "x" });
+    expect(list.map((s) => [chatWindowKey(s), s.open])).toEqual([["a/x", false], ["a", true]]);
   });
   it("forgets the oldest past what it keeps", () => {
     let list: SavedChatWindow[] = [];

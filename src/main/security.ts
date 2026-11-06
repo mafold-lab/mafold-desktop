@@ -17,6 +17,7 @@ import {
 
 import { RateLimit, uniqueName } from "./limits";
 import { log, redact } from "./log";
+import { zoomOnWheel } from "./pageZoom";
 import { decideNavigation, decideWindowOpen, hardenSite, mayAttachSite, permissionAllowed, shellUserAgent } from "./policy";
 import type { Shell } from "./shell";
 import { accountChoice, accountLabel, KEYCHAIN_ACCESS_GROUP } from "./webauthn";
@@ -46,8 +47,12 @@ export function guardAllContents(shell: Shell): void {
       }
       hardenSite(prefs as Record<string, unknown>);
     });
+    // A popup zooms on Ctrl + the wheel as the page does (its size not kept).
+    contents.on("did-create-window", (child) => zoomOnWheel(shell, child.webContents));
 
     const site = contents.getType() === "webview";
+    // So does a site on a tab: the same size as it would get in Chrome, its own.
+    if (site) zoomOnWheel(shell, contents);
     contents.setWindowOpenHandler((details) => {
       const decision = decideWindowOpen(details.url, details.referrer?.url ?? "", shell.cfg, {
         disposition: details.disposition,

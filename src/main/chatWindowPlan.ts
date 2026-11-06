@@ -9,17 +9,27 @@ import type { Bounds } from "./windowState";
 
 /** In userData, beside window-state.json. */
 export const CHAT_WINDOWS_FILE = "chat-windows.json";
-/** A phone's proportions: what the web's phone layout is drawn for. */
+/** One channel's window: a phone's proportions, what the web's phone layout is
+ *  drawn for. */
 export const CHAT_WINDOW_SIZE = { width: 420, height: 680 };
-/** How many conversations' places are kept; the oldest are forgotten. */
+/** A whole conversation's window: that and its channels' column beside it. */
+export const CONV_WINDOW_SIZE = { width: 760, height: 680 };
+/** How many windows' places are kept; the oldest are forgotten. */
 const KEPT = 64;
 /** Each window opened with nowhere to be sits this much on from the last. */
 const CASCADE = 32;
 /** The cursor stays on the title bar of a window dropped under it. */
 const GRAB_Y = 16;
 
-export interface SavedChatWindow {
+/** What a window shows: a whole conversation, or `channel` of it alone. */
+export interface ChatTarget {
   conv: string;
+  channel?: string;
+}
+
+export const chatWindowKey = (t: ChatTarget): string => (t.channel ? `${t.conv}/${t.channel}` : t.conv);
+
+export interface SavedChatWindow extends ChatTarget {
   bounds: Bounds;
   /** Open when it was written: it comes back with the next launch. */
   open: boolean;
@@ -27,7 +37,7 @@ export interface SavedChatWindow {
 
 const isSaved = (v: unknown): v is SavedChatWindow => {
   const o = v as SavedChatWindow | null;
-  return !!o && typeof o.conv === "string" && typeof o.open === "boolean" && ["x", "y", "width", "height"].every((k) => Number.isFinite(o.bounds?.[k as keyof Bounds]));
+  return !!o && typeof o.conv === "string" && (o.channel === undefined || typeof o.channel === "string") && typeof o.open === "boolean" && ["x", "y", "width", "height"].every((k) => Number.isFinite(o.bounds?.[k as keyof Bounds]));
 };
 
 export function readChatWindows(file: string): SavedChatWindow[] {
@@ -47,9 +57,9 @@ export function writeChatWindows(file: string, saved: SavedChatWindow[]): void {
   }
 }
 
-/** `entry` first, in place of what was known about its conversation. */
+/** `entry` first, in place of what was known about its window. */
 export const remembered = (saved: SavedChatWindow[], entry: SavedChatWindow): SavedChatWindow[] =>
-  [entry, ...saved.filter((s) => s.conv !== entry.conv)].slice(0, KEPT);
+  [entry, ...saved.filter((s) => chatWindowKey(s) !== chatWindowKey(entry))].slice(0, KEPT);
 
 const within = (start: number, size: number, from: number, length: number) => Math.round(Math.max(from, Math.min(start, from + length - size)));
 

@@ -14,7 +14,7 @@ import { notifyPermission, openNotifySettings, showNotification, testNotificatio
 import { originOf } from "./policy";
 import type { Shell } from "./shell";
 import { clearSiteData } from "./sites";
-import { readAppearance, readAuthorizeUrl, readConvId, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
+import { readAppearance, readAuthorizeUrl, readChatChannel, readConvId, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
 import {
   IPC,
   type AdoptCheck,
@@ -124,9 +124,10 @@ export function registerBridge(
     if (typeof url === "string" && url.length <= 8192) shell.openExternal(url, "page");
   });
 
-  on(IPC.openChatWindow, (_e, conv, dropped) => {
+  ipcMain.on(IPC.openChatWindow, (e, conv, dropped, channel) => {
+    if (!fromOurPage(shell, e) && !fromChatWindow(shell, e)) return;
     const id = readConvId(conv);
-    if (id) shell.chats?.show(id, dropped === true ? screen.getCursorScreenPoint() : undefined);
+    if (id) shell.chats?.show({ conv: id, channel: readChatChannel(channel) }, dropped === true ? screen.getCursorScreenPoint() : undefined);
   });
   ipcMain.on(IPC.closeChatWindow, (e) => {
     if (fromOurPage(shell, e)) shell.chats?.closeAll();
