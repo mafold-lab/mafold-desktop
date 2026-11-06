@@ -9,7 +9,7 @@
 
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { app, BaseWindow, nativeTheme, Notification, screen, WebContentsView, type WebContents } from "electron";
+import { app, BaseWindow, nativeTheme, Notification, screen, WebContentsView, type WebContents, type WebPreferences } from "electron";
 
 import { raiseCover } from "./cover";
 import { log, redact } from "./log";
@@ -27,7 +27,7 @@ export const offlineUrl = () => pathToFileURL(staticPath("offline.html")).href;
 /** The app's own ground (client-shared/appGround.ts, the web's `--jBg`) in the
  *  appearance the shell is in: the page's pick (bridge.ts `setAppearance`,
  *  restored at launch by index.ts), or the system's. */
-const ground = () => APP_GROUND[nativeTheme.shouldUseDarkColors ? "dark" : "light"];
+export const ground = () => APP_GROUND[nativeTheme.shouldUseDarkColors ? "dark" : "light"];
 
 const stateFile = () => join(app.getPath("userData"), "window-state.json");
 
@@ -42,6 +42,43 @@ export function saveWindowState(win: BaseWindow): void {
 
 /** `url`: what the window opens — the start page, or where a restart into a
  *  new version left off (relaunch.ts). */
+/** What every page of the app runs with, in the main window or a conversation's
+ *  own: the shell's preload in the app's session, and nothing else. */
+export function pageWebPreferences(shell: Shell, os: string, caps: readonly string[]): WebPreferences {
+  return {
+    preload: join(__dirname, "..", "preload", "index.js"),
+    partition: PARTITION,
+    contextIsolation: true,
+    sandbox: true,
+    nodeIntegration: false,
+    nodeIntegrationInSubFrames: false,
+    webSecurity: true,
+    spellcheck: true,
+    plugins: true, // the built-in PDF viewer behind attachment previews
+    // Background throttling stays ON: a window closed to the tray stops
+    // painting (with it off, a hidden window kept rendering every streamed
+    // reply — ~23% CPU with six bots writing). Its timers, which the socket
+    // lives on, keep their pace through the switches set in index.ts.
+    additionalArguments: [
+      `--mafold-web-origin=${shell.cfg.webOrigin}`,
+      `--mafold-version=${shell.version}`,
+      `--mafold-os=${os}`,
+      `--mafold-caps=${caps.join(",")}`,
+    ],
+  };
+}
+
+/** The page that says the app could not be reached; its button tries `url` again. */
+export const offlinePage = (shell: Shell, url: string) =>
+  offlineUrl() + "#" + encodeURIComponent(JSON.stringify({
+    title: shell.strings.t("desktop.offline.title"),
+    body: shell.strings.t("desktop.offline.body"),
+    retry: shell.strings.t("desktop.offline.retry"),
+    url,
+    // Both: the page follows the appearance through prefers-color-scheme.
+    ground: { light: APP_GROUND.light, dark: APP_GROUND.dark },
+  }));
+
 export function createMainWindow(shell: Shell, opts: { startHidden: boolean; os: "macos" | "windows" | "linux"; url: string }): { win: BaseWindow; page: WebContents } {
   const saved = readSaved(stateFile());
   const min = minSizeFor(opts.os, saved);
@@ -68,26 +105,8 @@ export function createMainWindow(shell: Shell, opts: { startHidden: boolean; os:
   const caps = capsFor(opts.os);
   const view = new WebContentsView({
     webPreferences: {
-      preload: join(__dirname, "..", "preload", "index.js"),
-      partition: PARTITION,
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      nodeIntegrationInSubFrames: false,
-      webSecurity: true,
-      spellcheck: true,
-      plugins: true, // the built-in PDF viewer behind attachment previews
+      ...pageWebPreferences(shell, opts.os, caps),
       webviewTag: true, // a site on a tab of the page; security.ts decides who gets one
-      // Background throttling stays ON: a window closed to the tray stops
-      // painting (with it off, a hidden window kept rendering every streamed
-      // reply — ~23% CPU with six bots writing). Its timers, which the socket
-      // lives on, keep their pace through the switches set in index.ts.
-      additionalArguments: [
-        `--mafold-web-origin=${shell.cfg.webOrigin}`,
-        `--mafold-version=${shell.version}`,
-        `--mafold-os=${opts.os}`,
-        `--mafold-caps=${caps.join(",")}`,
-      ],
     },
   });
   const page = view.webContents;
@@ -190,14 +209,7 @@ export function createMainWindow(shell: Shell, opts: { startHidden: boolean; os:
     // -3 = ERR_ABORTED: a navigation replaced by another, not a failure.
     if (!isMainFrame || code === -3 || url.startsWith(offlineUrl())) return;
     log("load failed:", code, desc, redact(url));
-    void page.loadURL(offlineUrl() + "#" + encodeURIComponent(JSON.stringify({
-      title: shell.strings.t("desktop.offline.title"),
-      body: shell.strings.t("desktop.offline.body"),
-      retry: shell.strings.t("desktop.offline.retry"),
-      url: shell.cfg.startUrl,
-      // Both: the page follows the appearance through prefers-color-scheme.
-      ground: { light: APP_GROUND.light, dark: APP_GROUND.dark },
-    })));
+    void page.loadURL(offlinePage(shell, shell.cfg.startUrl));
   });
 
   page.on("render-process-gone", (_e, details) => {

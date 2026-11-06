@@ -37,7 +37,7 @@ export function attachContextMenu(contents: WebContents, shell: Shell): void {
 
     if (p.linkURL && isExternalUrl(p.linkURL)) {
       if (shell.isSubscribed("open-link") && /^https?:/.test(p.linkURL)) {
-        items.push({ label: t("desktop.context.openInTab"), click: () => shell.emit("open-link", p.linkURL) });
+        items.push({ label: t("desktop.context.openInTab"), click: () => shell.openTab(p.linkURL, contents) });
       }
       items.push({ label: t("desktop.context.openLink"), click: () => shell.openExternal(p.linkURL, "context-menu") });
       items.push({ label: t("desktop.context.copyLink"), click: () => clipboard.writeText(p.linkURL) });

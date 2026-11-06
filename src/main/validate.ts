@@ -13,6 +13,8 @@ const MAX_TOP = 8;
 const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const count = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(Math.floor(v), 1_000_000)) : 0);
 
+export const readConvId = (v: unknown): string | null => (typeof v === "string" && ID_RE.test(v) ? v : null);
+
 export function readUnread(v: unknown): UnreadSummary | null {
   const o = obj(v);
   if (!o) return null;
@@ -53,7 +55,7 @@ export function readNotification(v: unknown): HostNotification | null {
 export const readAppearance = (v: unknown): Appearance | null => (v === "light" || v === "dark" || v === "system" ? v : null);
 
 export const readEventName = (v: unknown): HostEventName | null =>
-  v === "navigate" || v === "share" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" || v === "update" || v === "logs" || v === "open-link" ? v : null;
+  v === "navigate" || v === "share" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" || v === "update" || v === "logs" || v === "open-link" || v === "chat-windows" ? v : null;
 
 export const readWindowAction = (v: unknown): WindowAction | null =>
   typeof v === "string" && (WINDOW_ACTIONS as readonly string[]).includes(v) ? (v as WindowAction) : null;

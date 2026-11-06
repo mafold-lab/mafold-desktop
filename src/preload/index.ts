@@ -95,9 +95,12 @@ if (webOrigin && window.location.origin === webOrigin) {
     version: arg("version"),
     os: (arg("os") === "windows" ? "windows" : "macos") as HostOs,
     caps,
+    ...(arg("solo-chat") ? { soloChat: arg("solo-chat") } : {}),
     setUnread: (u: UnreadSummary) => ipcRenderer.send(IPC.setUnread, u),
     notify: (n: HostNotification) => ipcRenderer.send(IPC.notify, n),
     openExternal: (url: string) => ipcRenderer.send(IPC.openExternal, url),
+    openChatWindow: (convId: string, dropped?: boolean) => ipcRenderer.send(IPC.openChatWindow, convId, dropped === true),
+    closeChatWindow: () => ipcRenderer.send(IPC.closeChatWindow),
     clearSiteData: (): Promise<boolean> => ipcRenderer.invoke(IPC.siteDataClear),
     takeShare: (): Promise<HostShare | null> => ipcRenderer.invoke(IPC.shareTake),
     oauth: (authorizeUrl: string, state: string): Promise<OAuthResult> => ipcRenderer.invoke(IPC.oauth, authorizeUrl, state),
@@ -112,6 +115,16 @@ if (webOrigin && window.location.origin === webOrigin) {
           if (typeof p !== "string") return;
           try {
             (cb as unknown as (s: DaemonStatus) => void)(JSON.parse(p) as DaemonStatus);
+          } catch {
+            /* a malformed frame is dropped */
+          }
+        });
+      }
+      if (name === "chat-windows") {
+        return subscribe(name, (p) => {
+          if (typeof p !== "string") return;
+          try {
+            (cb as unknown as (ids: string[]) => void)(JSON.parse(p) as string[]);
           } catch {
             /* a malformed frame is dropped */
           }

@@ -6,6 +6,7 @@
 import { appendFileSync } from "node:fs";
 import { shell as electronShell, webContents as electronWebContents, type BaseWindow, type WebContents } from "electron";
 
+import type { ChatWindows } from "./chatWindows";
 import type { ShellConfig } from "./config";
 import type { Strings } from "./i18n";
 import type { WindowFrame } from "./frame";
@@ -21,6 +22,8 @@ export class Shell {
   page: WebContents | null = null;
   /** Where the page sits in the window; on macOS the phone layout's title bar (frame.ts). */
   frame: WindowFrame | null = null;
+  /** The conversations in windows of their own (chatWindows.ts). */
+  chats: ChatWindows | null = null;
   quitting = false;
   updateReady = false;
   /** The page stopped answering (window.ts): it cannot take the update's restart. */
@@ -174,6 +177,13 @@ export class Shell {
     const p = this.page;
     if (!p || p.isDestroyed()) return;
     p.send(IPC.event, env);
+  }
+
+  /** A link for a tab of the app page. The tabs are in the main window, so a
+   *  link from a conversation's own window brings that one up. */
+  openTab(url: string, from: WebContents): void {
+    this.emit("open-link", url);
+    if (this.chats?.owns(from)) this.showWindow();
   }
 
   /** Open in the system's handler — http(s), mailto, tel only, at most once a

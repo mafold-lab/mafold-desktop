@@ -241,11 +241,19 @@ const CHECKOUT = "https://checkout.invalid/c/pay/cs_test#token=tok";
 // Playwright's locators wait for that navigation to finish, which it never does.
 const count = (selector: string) => page.evaluate((s) => document.querySelectorAll(s).length, selector);
 const reads = () => page.evaluate(() => document.body.innerText);
-const siteShown = () =>
-  page.evaluate(() => {
-    const tag = document.querySelector("webview");
+// The first tab's by default: with two open, name the one that should show.
+const siteShown = (selector = "webview") =>
+  page.evaluate((s) => {
+    const tag = document.querySelector(s);
     return !!tag && getComputedStyle(tag).visibility === "visible" && tag.getBoundingClientRect().width > 200;
+  }, selector);
+const onTop = () =>
+  page.evaluate(() => {
+    const r = document.querySelector("[data-testid=app-panel]")?.getBoundingClientRect();
+    return !!r && r.left > 200 && !!document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest("[data-testid=app-panel]");
   });
+const chatShown = () =>
+  page.evaluate(() => Array.from(document.querySelectorAll("textarea, [contenteditable=true]")).some((e) => e.checkVisibility({ visibilityProperty: true })));
 
 test("a checkout opens as a tab, and the sheets it was bought from give way", async () => {
   await lights("sheet");
@@ -262,12 +270,30 @@ test("a checkout opens as a tab, and the sheets it was bought from give way", as
   expect(l.external()).toEqual([]);
 });
 
-test("a checkout from Settings: Settings gives way too", async () => {
+test("a checkout from Settings stands over it, and Settings is there when it goes", async () => {
   await lights("settings", "general");
   await expect(page.getByTestId("site-bar")).toHaveCount(0);
   await lights("pay", CHECKOUT);
   await expect.poll(reads).toContain("checkout.invalid");
   await expect.poll(siteShown).toBe(true);
+  await expect.poll(onTop).toBe(true);
+  expect(await chatShown()).toBe(false);
+  await page.evaluate(() => document.querySelector<HTMLElement>("[data-testid=app-tab-strip] > button")?.click());
+  await expect.poll(() => count("[data-testid=app-panel]")).toBe(0);
+  expect(await chatShown()).toBe(false);
+});
+
+test("a checkout from the wallet with a page beside the chat from before: the page comes over the wallet", async () => {
+  await tap(url("/titled"));
+  await guestOn("/titled");
+  await lights("wallet");
+  await settle();
+  await lights("pay", CHECKOUT);
+  await expect.poll(reads).toContain("checkout.invalid");
+  await expect.poll(() => siteShown("webview[src*='checkout.invalid']")).toBe(true);
+  await expect.poll(onTop).toBe(true);
+  expect(await count("[data-app-tab]")).toBe(2);
+  expect(await chatShown()).toBe(false);
 });
 
 test("an app filling the window gives way too", async () => {

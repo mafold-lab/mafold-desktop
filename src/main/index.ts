@@ -13,6 +13,7 @@ import { app, dialog, Menu, nativeTheme, powerMonitor } from "electron";
 import { readSavedAppearance } from "./appearance";
 import { launchedAtLogin, makeAutostart } from "./autostart";
 import { registerBridge } from "./bridge";
+import { ChatWindows } from "./chatWindows";
 import { APP_ID, resolveConfig } from "./config";
 import { attachContextMenu } from "./contextMenu";
 import { coverBounds, coverUp } from "./cover";
@@ -126,6 +127,12 @@ if (!app.requestSingleInstanceLock()) {
     if (back) log("back where", back.from || "the last version", "left off");
     const { win, page } = createMainWindow(s, { startHidden: launchedAtLogin(os), os, url: relaunchUrl(cfg, back?.hash ?? null) });
     attachContextMenu(page, s);
+    const chats = new ChatWindows(s, os, userData);
+    s.chats = chats;
+    // They come back with Mafold, once there is a window to come back beside:
+    // opened at login into the tray, not before the person opens it.
+    if (win.isVisible()) chats.restore();
+    else win.once("show", () => chats.restore());
 
     let menuKey = "";
     const redrawMenu = () => {
@@ -211,6 +218,7 @@ if (!app.requestSingleInstanceLock()) {
       // page is — only its hash, and only one the web app writes.
       beforeInstall: () => {
         saveWindowState(win);
+        chats.keepForNextLaunch();
         if (!page.isDestroyed()) noteRelaunch(userData, page.getURL(), s.version, cfg, Date.now());
       },
     });
@@ -273,6 +281,9 @@ if (!app.requestSingleInstanceLock()) {
         },
         // The main window's page — a view in the window, not the window (window.ts).
         page: () => s.page,
+        // The conversations in windows of their own (chatWindows.ts).
+        chatWindows: () => chats.ids(),
+        openChatWindow: (conv: string, at?: { x: number; y: number }) => chats.show(conv, at),
       };
     }
   });

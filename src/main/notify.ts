@@ -108,6 +108,8 @@ function present(
 
 export function showNotification(shell: Shell, n: HostNotification, os: Os): void {
   if (!Notification.isSupported()) return;
+  // In its own window, in front of the person: the page behind can't tell.
+  if (shell.chats?.isFocused(n.convId)) return;
   const note = new Notification({
     title: n.title,
     body: n.body,
@@ -115,6 +117,10 @@ export function showNotification(shell: Shell, n: HostNotification, os: Os): voi
     icon: os === "macos" ? undefined : resourcePath("icon-256.png"),
   });
   present(shell, n.convId, note, () => {
+    if (shell.chats?.has(n.convId)) {
+      shell.chats.show(n.convId);
+      return;
+    }
     shell.showWindow();
     shell.emit("navigate", n.msgId ? `#${n.convId}/${n.msgId}` : `#${n.convId}`);
   });

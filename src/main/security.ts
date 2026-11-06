@@ -66,7 +66,7 @@ export function guardAllContents(shell: Shell): void {
         return { action: "deny" };
       }
       if (decision === "tab") {
-        shell.emit("open-link", details.url);
+        shell.openTab(details.url, contents);
         return { action: "deny" };
       }
       if (decision === "external") {
@@ -120,7 +120,7 @@ export function guardMainNavigation(contents: WebContents, shell: Shell, offline
         break;
       case "tab":
         e.preventDefault();
-        if (tabLimit.allow("popup", Date.now())) shell.emit("open-link", url);
+        if (tabLimit.allow("popup", Date.now())) shell.openTab(url, contents);
         else log("rate-limited link:", redact(url));
         break;
       case "external":

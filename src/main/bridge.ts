@@ -1,8 +1,9 @@
 // The main-process half of `window.mafoldHost`. Every handler first asks who is
 // calling: only the main window's top frame, showing the web origin, is
-// answered. Child windows, subframes, the offline page — dropped silently.
+// answered, and a conversation's own window (chatWindows.ts) for the little it
+// was offered. Child windows, subframes, the offline page — dropped silently.
 
-import { app, ipcMain, nativeTheme, screen, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { app, ipcMain, nativeTheme, screen, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from "electron";
 import { arrangedBounds } from "./chrome";
 
 import { saveAppearance } from "./appearance";
@@ -13,7 +14,7 @@ import { notifyPermission, openNotifySettings, showNotification, testNotificatio
 import { originOf } from "./policy";
 import type { Shell } from "./shell";
 import { clearSiteData } from "./sites";
-import { readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
+import { readAppearance, readAuthorizeUrl, readConvId, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
 import {
   IPC,
   type AdoptCheck,
@@ -41,14 +42,18 @@ import type { Updater } from "./updater";
 /** The page's name for one follow: it counts them from 1. */
 const isFollowId = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 
-export function fromOurPage(shell: Shell, e: IpcMainEvent | IpcMainInvokeEvent): boolean {
-  const page = shell.page;
+function fromTopOf(page: WebContents | null, shell: Shell, e: IpcMainEvent | IpcMainInvokeEvent): boolean {
   const frame = e.senderFrame;
   if (!page || page.isDestroyed() || !frame || e.sender !== page) return false;
   // Compare the frame by identity of process + routing id, not object identity.
   const main = page.mainFrame;
   return frame.processId === main.processId && frame.routingId === main.routingId && originOf(frame.url) === shell.cfg.webOrigin;
 }
+
+export const fromOurPage = (shell: Shell, e: IpcMainEvent | IpcMainInvokeEvent): boolean => fromTopOf(shell.page, shell, e);
+
+/** The top frame of a conversation's own window, showing the web origin. */
+const fromChatWindow = (shell: Shell, e: IpcMainEvent): boolean => !!shell.chats?.owns(e.sender) && fromTopOf(e.sender, shell, e);
 
 export function registerBridge(
   shell: Shell,
@@ -114,8 +119,18 @@ export function registerBridge(
 
   handle<HostShare | null>(IPC.shareTake, () => (os === "macos" ? takeShare(shareInboxDir()) : null), null);
 
-  on(IPC.openExternal, (_e, url) => {
+  ipcMain.on(IPC.openExternal, (e, url) => {
+    if (!fromOurPage(shell, e) && !fromChatWindow(shell, e)) return;
     if (typeof url === "string" && url.length <= 8192) shell.openExternal(url, "page");
+  });
+
+  on(IPC.openChatWindow, (_e, conv, dropped) => {
+    const id = readConvId(conv);
+    if (id) shell.chats?.show(id, dropped === true ? screen.getCursorScreenPoint() : undefined);
+  });
+  ipcMain.on(IPC.closeChatWindow, (e) => {
+    if (fromOurPage(shell, e)) shell.chats?.closeAll();
+    else if (fromChatWindow(shell, e)) shell.chats?.closeOf(e.sender);
   });
 
   handle<boolean>(IPC.siteDataClear, () => clearSiteData(), false);
