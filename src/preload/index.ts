@@ -167,6 +167,7 @@ if (webOrigin && window.location.origin === webOrigin) {
     setWindowControls: (drawn: boolean) => ipcRenderer.send(IPC.setWindowControls, drawn === true),
     windowControl: (action: WindowAction) => ipcRenderer.send(IPC.windowControl, action),
     setWindowLayout: (layout: WindowLayout) => ipcRenderer.send(IPC.setWindowLayout, layout),
+    setWindowCorners: (on: boolean) => ipcRenderer.send(IPC.setWindowCorners, on),
     daemon: {
       status: (): Promise<DaemonStatus> => ipcRenderer.invoke(IPC.daemonStatus),
       enable: (username: string): Promise<DaemonEnableResult> => ipcRenderer.invoke(IPC.daemonEnable, username),

@@ -34,13 +34,11 @@
 // was asked for.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
 
-import { launch, type Launched } from "./fixtures";
+import { launch, startShots, type Launched } from "./fixtures";
 import { captureWindow, doubleClickAction, geometry, inputAccess, mouse, OS, place, pngSize, record, windowButtons, type Geometry, type Outcome, type Rect } from "./os/real";
 
 const WEB_DIR = process.env.MAFOLD_DESKTOP_SHOTS_PAGE ?? join(__dirname, "web");
@@ -184,7 +182,7 @@ const summary = {
   notes: [] as string[],
 };
 
-let server: Server;
+let server: NonNullable<Awaited<ReturnType<typeof startShots>>>;
 let web = "";
 let api = "";
 let s: Session | null = null;
@@ -215,15 +213,8 @@ const pageState = (page: Page) =>
 test.skip(!HAVE_PAGE, `no shots page at ${WEB_DIR} (the monorepo's desktop-tests.yml builds it: scripts/ci/public-desktop/shots-page.mjs)`);
 
 test.beforeAll(async () => {
-  const js = readFileSync(join(WEB_DIR, "harness.js"));
-  const html = readFileSync(join(WEB_DIR, "index.html"));
-  server = createServer((req, res) => {
-    if (req.url?.startsWith("/harness.js")) res.writeHead(200, { "content-type": "text/javascript", "cache-control": "max-age=3600" }).end(js);
-    else if (req.url?.startsWith("/app")) res.writeHead(200, { "content-type": "text/html" }).end(html);
-    else res.writeHead(404).end();
-  });
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
-  web = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  server = (await startShots(WEB_DIR))!;
+  web = server.web;
   // The api origin: nothing the offline page asks for (its core never comes up).
   api = "http://127.0.0.1:9";
   const l = await launch(web, api, { MAFOLD_DESKTOP_START_PATH: layoutPath(SIGNED_IN) });
@@ -250,7 +241,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await s?.l.app.close();
-  await new Promise((r) => server?.close(r));
+  await server?.close();
   if (!OUT) return;
   writeFileSync(join(OUT, "summary.json"), JSON.stringify(summary, null, 2));
   const md = [

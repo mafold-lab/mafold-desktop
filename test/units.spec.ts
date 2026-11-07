@@ -5,6 +5,7 @@ import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 
 import { readSavedAppearance, saveAppearance } from "../src/main/appearance";
+import { readWindowCorners, saveWindowCorners } from "../src/main/windowCorners";
 import { resolveConfig, PRODUCTION } from "../src/main/config";
 import { Strings } from "../src/main/i18n";
 import { clip, RateLimit, RecentActs, uniqueName } from "../src/main/limits";
@@ -15,6 +16,7 @@ import { nextZoom, readSavedZoom, saveZoom } from "../src/main/zoom";
 import { arrangedBounds, capsFor, framePlan, NATIVE_TRAFFIC_POSITION, TITLE_BAR, TRAFFIC_PILL } from "../src/main/chrome";
 import { notifySettingsUrl, parsePermission } from "../src/main/notifyPermission";
 import { APP_ID } from "../src/main/config";
+import { WINDOW_CORNER } from "../src/shared/desktopHost.generated";
 
 describe("notification permission", () => {
   it("reads back only what it wrote; anything else is unknown", () => {
@@ -184,6 +186,28 @@ describe("appearance kept across launches", () => {
   });
 });
 
+describe("the window's corners kept across launches", () => {
+  const userData = () => mkdtempSync(join(tmpdir(), "mafold-corners-"));
+  it("reads back what it saved", () => {
+    const dir = userData();
+    for (const on of [true, false]) {
+      saveWindowCorners(dir, on);
+      expect(readWindowCorners(dir)).toBe(on);
+    }
+  });
+  it("is the system's window when there is nothing saved, or nothing it can read", () => {
+    expect(readWindowCorners(userData())).toBe(false);
+    for (const text of ["{not json", "null", "", JSON.stringify({ on: "true" }), JSON.stringify({ on: 1 })]) {
+      const dir = userData();
+      writeFileSync(join(dir, "window-corners.json"), text);
+      expect(readWindowCorners(dir)).toBe(false);
+    }
+  });
+  it("saving where it can't write fails nothing", () => {
+    expect(() => saveWindowCorners(join(userData(), "no-such-dir"), true)).not.toThrow();
+  });
+});
+
 describe("page zoom, Chrome's way", () => {
   const walk = (from: number, step: "in" | "out", n: number) => {
     const seen: number[] = [];
@@ -230,7 +254,7 @@ describe("window chrome (macOS)", () => {
     expect(capsFor("windows")).toContain("daemon");
     // The green light's arranging travels with the drawn lights, and so does
     // the title bar that takes over from them in the phone layout.
-    for (const cap of ["window-arrange", "window-titlebar"] as const) {
+    for (const cap of ["window-arrange", "window-titlebar", "window-corners"] as const) {
       expect(capsFor("macos")).toContain(cap);
       expect(capsFor("windows")).not.toContain(cap);
       expect(capsFor("linux")).not.toContain(cap);
@@ -242,6 +266,7 @@ describe("window chrome (macOS)", () => {
       bar: true,
       page: { x: 0, y: TITLE_BAR.height, width: 390, height: 700 - TITLE_BAR.height },
       lights: TITLE_BAR.lights,
+      corner: 0,
     });
     // As tall as the system's (31 + its line), the lights centred in it.
     expect(TITLE_BAR.height).toBe(32);
@@ -261,6 +286,19 @@ describe("window chrome (macOS)", () => {
     }
     // Never a negative page, however short the window gets on the way.
     expect(framePlan({ layout: "phone", fullscreen: false }, { width: 390, height: 10 }).page.height).toBe(0);
+  });
+  it("draws the window's own corners only beside the chat list: wide, out of full screen, with the flag", () => {
+    const size = { width: 1440, height: 900 };
+    expect(framePlan({ layout: "wide", fullscreen: false, corners: true }, size).corner).toBe(WINDOW_CORNER);
+    for (const at of [
+      { layout: "wide", fullscreen: false },
+      { layout: "wide", fullscreen: false, corners: false },
+      { layout: "wide", fullscreen: true, corners: true },
+      { layout: "phone", fullscreen: false, corners: true },
+      { layout: "phone", fullscreen: true, corners: true },
+    ] as const) {
+      expect(framePlan(at, size).corner, JSON.stringify(at)).toBe(0);
+    }
   });
   it("arranges the window inside the display's work area", () => {
     const area = { x: 0, y: 25, width: 1513, height: 957 };

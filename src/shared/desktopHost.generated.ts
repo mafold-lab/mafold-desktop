@@ -93,6 +93,10 @@ export const HOST_CAPS = [
   // before it says whether it draws them, and the window goes down to phone
   // width once it has. Without it the page draws its lights at every width.
   "window-titlebar",
+  // `window-corners` (macOS) — `setWindowCorners`: whether this person's window
+  // follows the chat list's corners (flag `windowCorners`). The shell keeps it
+  // for its next launch: a window is made see-through or not, once.
+  "window-corners",
   // `site-tabs` — a link opens as a tab on the app page: the page draws the
   // tab and a `<webview>` in `SITE_PARTITION` (the shell refuses any other),
   // and listens to `on("open-link")`, which is what makes links come to it:
@@ -121,6 +125,12 @@ export type HostCap = (typeof HOST_CAPS)[number];
  *  about this computer stay the main window's. `notify` is here so that the page
  *  doesn't turn to Web Push; the shell drops it, the main window notifies. */
 export const CHAT_WINDOW_CAPS: readonly HostCap[] = ["notify", "external-links", "chat-windows", "chat-channel-windows"];
+
+/** The main window's corners under `window-corners`, in points. The chat list's
+ *  frame (mafold-web lib/sidebarWidth.ts `LIST_FRAME`, radius 28) stands 2 from
+ *  the window's top and 3 from its side; this keeps the two curves running side
+ *  by side, 3 apart at the side and 2 at the top. */
+export const WINDOW_CORNER = 30;
 
 /** `soloChannel` and `openChatWindow`'s channel for a conversation's #all, which
  *  has no channel id. */
@@ -739,6 +749,9 @@ export interface MafoldHost {
   /** `window-titlebar` only — check the cap; an older shell has no such
    *  method. Sent before `setWindowControls`, and again on every change. */
   setWindowLayout?(layout: WindowLayout): void;
+  /** `window-corners` only — check the cap; an older shell has no such method.
+   *  Says it on every load; the window changes at the shell's next launch. */
+  setWindowCorners?(on: boolean): void;
   /** `site-tabs` only — check the cap; an older shell has no such method.
    *  Everything sites stored here, and what they were allowed. */
   clearSiteData?(): Promise<boolean>;
@@ -892,6 +905,7 @@ export const IPC = {
   setWindowControls: "mafold-host:set-window-controls",
   windowControl: "mafold-host:window-control",
   setWindowLayout: "mafold-host:set-window-layout",
+  setWindowCorners: "mafold-host:set-window-corners",
   updateState: "mafold-host:update-state",
   updateInstall: "mafold-host:update-install",
   updateCheck: "mafold-host:update-check",

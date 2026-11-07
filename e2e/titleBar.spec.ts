@@ -17,7 +17,7 @@ import { launch, profile, startOrigins, type Launched, type Origins } from "./fi
 
 const HIDDEN_ARG = "--hidden"; // autostart.ts (which imports electron: not loadable here)
 
-type Frame = { bar: boolean | null; page: { x: number; y: number; width: number; height: number } | null; min: number[]; lights: { x: number; y: number } | null };
+type Frame = { bar: boolean | null; page: { x: number; y: number; width: number; height: number } | null; min: number[]; lights: { x: number; y: number } | null; corners: number };
 const frame = (app: ElectronApplication) =>
   app.evaluate(() => (globalThis as unknown as { __mafoldTest: { frame(): Frame | null } }).__mafoldTest.frame());
 
@@ -64,7 +64,7 @@ test("phone layout: the shell's bar above the page, the system's lights in it; w
 
   // A window that has only been wide, and a page that has said nothing: as before.
   const [w0, h0] = await contentSize(app);
-  expect(await frame(app)).toEqual({ bar: false, page: { x: 0, y: 0, width: w0, height: h0 }, min: [1024, 620], lights: NATIVE_TRAFFIC_POSITION });
+  expect(await frame(app)).toEqual({ bar: false, page: { x: 0, y: 0, width: w0, height: h0 }, min: [1024, 620], lights: NATIVE_TRAFFIC_POSITION, corners: 0 });
 
   // A page that knows the bar: the window may go down to a phone's width.
   await say(l, "wide");
@@ -78,7 +78,7 @@ test("phone layout: the shell's bar above the page, the system's lights in it; w
   await expect.poll(async () => (await frame(app))!.bar).toBe(true);
   const [w, h] = await contentSize(app);
   expect(w).toBe(390);
-  expect(await frame(app)).toEqual({ bar: true, page: { x: 0, y: TITLE_BAR.height, width: w, height: h - TITLE_BAR.height }, min: [390, 480], lights: TITLE_BAR.lights });
+  expect(await frame(app)).toEqual({ bar: true, page: { x: 0, y: TITLE_BAR.height, width: w, height: h - TITLE_BAR.height }, min: [390, 480], lights: TITLE_BAR.lights, corners: 0 });
   // The page really is a bar shorter: nothing of it is under the bar.
   await expect.poll(() => viewport(l!)).toEqual([w, h - TITLE_BAR.height]);
   // One bar: a static document (no script, no preload — frame.ts), once its
@@ -95,7 +95,7 @@ test("phone layout: the shell's bar above the page, the system's lights in it; w
   await say(l, "wide");
   await expect.poll(async () => (await frame(app))!.bar).toBe(false);
   const [w3, h3] = await contentSize(app);
-  expect(await frame(app)).toEqual({ bar: false, page: { x: 0, y: 0, width: w3, height: h3 }, min: [390, 480], lights: NATIVE_TRAFFIC_POSITION });
+  expect(await frame(app)).toEqual({ bar: false, page: { x: 0, y: 0, width: w3, height: h3 }, min: [390, 480], lights: NATIVE_TRAFFIC_POSITION, corners: 0 });
   await expect.poll(() => viewport(l!)).toEqual([w3, h3]);
 
   // Phone once more: the same bar comes back, not a second one.
@@ -116,11 +116,11 @@ test("a reload keeps the frame: a new document has said nothing yet, and nothing
 
   await l.page.reload();
   await l.page.waitForSelector("#h");
-  expect(await frame(app)).toEqual({ bar: true, page: { x: 0, y: TITLE_BAR.height, width: 390, height: 700 - TITLE_BAR.height }, min: [390, 480], lights: TITLE_BAR.lights });
+  expect(await frame(app)).toEqual({ bar: true, page: { x: 0, y: TITLE_BAR.height, width: 390, height: 700 - TITLE_BAR.height }, min: [390, 480], lights: TITLE_BAR.lights, corners: 0 });
   // The new document says it is in the phone layout too: still one bar, nothing moved.
   await say(l, "phone");
   await drawLights(l, false);
-  expect(await frame(app)).toEqual({ bar: true, page: { x: 0, y: TITLE_BAR.height, width: 390, height: 700 - TITLE_BAR.height }, min: [390, 480], lights: TITLE_BAR.lights });
+  expect(await frame(app)).toEqual({ bar: true, page: { x: 0, y: TITLE_BAR.height, width: 390, height: 700 - TITLE_BAR.height }, min: [390, 480], lights: TITLE_BAR.lights, corners: 0 });
   await expect.poll(() => barContents(app)).toBe(1);
 });
 
@@ -133,7 +133,7 @@ test("a page that draws its lights without saying its layout — an older web �
 
   // It opens as it was left: narrow, the bar up, until the page says.
   expect(await contentSize(app)).toEqual([390, 700]);
-  expect(await frame(app)).toEqual({ bar: true, page: { x: 0, y: TITLE_BAR.height, width: 390, height: 700 - TITLE_BAR.height }, min: [390, 480], lights: TITLE_BAR.lights });
+  expect(await frame(app)).toEqual({ bar: true, page: { x: 0, y: TITLE_BAR.height, width: 390, height: 700 - TITLE_BAR.height }, min: [390, 480], lights: TITLE_BAR.lights, corners: 0 });
 
   // This page draws the lights itself, at every width: the wide frame for it.
   await drawLights(l, true);

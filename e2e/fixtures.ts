@@ -4,7 +4,7 @@
 //   api  — a different origin: file downloads, the cross-origin frame, and a
 //          "third-party" page for popups.
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -146,6 +146,21 @@ export function profile(files: Record<string, string>): string {
   mkdirSync(dir, { recursive: true });
   for (const [name, body] of Object.entries(files)) writeFileSync(join(dir, name), body);
   return dir;
+}
+
+/** The real web screens (mafold-web test/windowLights/shots.tsx, in `dir`: the
+ *  monorepo's dispatch job builds them, this tree alone has none), as the web
+ *  origin: `/app?layout=<json>` is one screen. Null without them. */
+export async function startShots(dir: string): Promise<{ web: string; close(): Promise<void> } | null> {
+  if (!existsSync(join(dir, "index.html")) || !existsSync(join(dir, "harness.js"))) return null;
+  const js = readFileSync(join(dir, "harness.js"));
+  const page = readFileSync(join(dir, "index.html"));
+  const server = createServer((req, res) => {
+    if (req.url?.startsWith("/harness.js")) res.writeHead(200, { "content-type": "text/javascript", "cache-control": "max-age=3600" }).end(js);
+    else if (req.url?.startsWith("/app")) res.writeHead(200, { "content-type": "text/html" }).end(page);
+    else res.writeHead(404).end();
+  });
+  return { web: await listen(server), close: () => new Promise((r) => server.close(() => r())) };
 }
 
 /** 主窗口的那张页面 —— 不是开窗时盖在它上面的加载画面(src/main/cover.ts):

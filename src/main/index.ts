@@ -277,6 +277,7 @@ if (!app.requestSingleInstanceLock()) {
             page: s.frame.pageBounds(),
             min: w.getMinimumSize(),
             lights: process.platform === "darwin" ? w.getWindowButtonPosition() : null,
+            corners: s.frame.corners,
           };
         },
         // The main window's page — a view in the window, not the window (window.ts).

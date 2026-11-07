@@ -25,11 +25,19 @@
 // dragging it moves the window and double-clicking it does what the system's
 // title bar does (System Settings ▸ Desktop & Dock); the lights are the
 // system's own, moved into it. Its title follows the window's ("(3) Mafold").
+//
+// With corners of its own (windowCorners.ts) the window is see-through and has
+// nothing of its own to show in a gap: a plate, a plain view as wide as the
+// window, takes over from the root as what stands under the page, cut to the
+// same corner. A view's corner cuts that view alone, never what's in it or over
+// it, so the bar (phone layout) and the loading cover (cover.ts) each take the
+// corner themselves or stand where there is none.
 
-import { nativeTheme, WebContentsView, type BaseWindow, type Rectangle, type View } from "electron";
+import { nativeTheme, View, WebContentsView, type BaseWindow, type Rectangle } from "electron";
 
 import { framePlan, TITLE_BAR, type Point } from "./chrome";
 import { log } from "./log";
+import { CLEAR } from "./windowCorners";
 import { MAC_MIN_SIZE, MIN_SIZE } from "./windowState";
 import type { WindowLayout } from "../shared/desktopHost.generated";
 
@@ -67,6 +75,9 @@ const barDocument = (title: string) =>
 
 export class WindowFrame {
   private readonly root: View;
+  /** Under the page in a window with corners of its own; none without. */
+  private readonly plate: View | null = null;
+  private corner = 0;
   private bar: WebContentsView | null = null;
   /** The bar is in the window now (not just made: out of it, it is nowhere —
    *  a hidden view could still count as somewhere to drag the window from). */
@@ -84,16 +95,23 @@ export class WindowFrame {
 
   /** `bars`: this shell draws the phone layout's title bar (macOS, the cap
    *  `window-titlebar`); without it the page always fills the window.
-   *  `narrow`: the window may already go down to a phone's width (windowState.ts). */
+   *  `narrow`: the window may already go down to a phone's width (windowState.ts).
+   *  `plate`: the ground, for a window with corners of its own (windowCorners.ts). */
   constructor(
     private readonly win: BaseWindow,
     private readonly page: WebContentsView,
     private readonly bars: boolean,
     narrow: boolean,
+    plate: string | null = null,
   ) {
     this.root = win.contentView;
     // What shows in a gap while the window is being resized: the page's own ground.
-    this.root.setBackgroundColor(win.getBackgroundColor());
+    this.root.setBackgroundColor(plate ? CLEAR : win.getBackgroundColor());
+    if (plate) {
+      this.plate = new View();
+      this.plate.setBackgroundColor(plate);
+      this.root.addChildView(this.plate);
+    }
     this.root.addChildView(page);
     this.narrow = narrow;
     // Until the page says, the window's width guesses: a narrow window was left
@@ -109,6 +127,11 @@ export class WindowFrame {
   /** Where the page is in the window, for the loading cover over it. */
   pageBounds(): Rectangle {
     return this.page.getBounds();
+  }
+
+  /** How round the window's corners are drawn now, for the loading cover. */
+  get corners(): number {
+    return this.corner;
   }
 
   /** `fn` after every layout (the cover follows the page). */
@@ -161,7 +184,7 @@ export class WindowFrame {
   /** Light or dark changed (window.ts, after the window's own ground): the
    *  root under the views, and the bar before its document repaints. */
   reground(ground: string): void {
-    this.root.setBackgroundColor(ground);
+    (this.plate ?? this.root).setBackgroundColor(ground);
     this.bar?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? LOOK.dark.bar : LOOK.light.bar);
   }
 
@@ -171,8 +194,16 @@ export class WindowFrame {
     const fullscreen = win.isFullScreen();
     const b = this.root.getBounds();
     const [width, height] = b.width > 0 && b.height > 0 ? [b.width, b.height] : win.getContentSize();
-    const plan = framePlan({ layout: this.layout, fullscreen }, { width, height });
+    const plan = framePlan({ layout: this.layout, fullscreen, corners: !!this.plate }, { width, height });
     this.page.setBounds(plan.page);
+    this.plate?.setBounds({ x: 0, y: 0, width, height });
+    if (this.plate && plan.corner !== this.corner) {
+      this.corner = plan.corner;
+      this.plate.setBorderRadius(plan.corner);
+      this.page.setBorderRadius(plan.corner);
+      // The system's shadow is the window's shape, read once until it's told.
+      win.invalidateShadow();
+    }
     if (plan.bar) {
       const bar = this.bar ?? this.makeBar();
       bar.setBounds({ x: 0, y: 0, width, height: TITLE_BAR.height });

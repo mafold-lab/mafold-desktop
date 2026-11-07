@@ -439,7 +439,18 @@ test("Ctrl + the wheel zooms the site on the tab, and leaves the app's kept size
     const b = BaseWindow.getAllWindows()[0].getContentBounds();
     return { x: b.x, y: b.y, scale: screen.getDisplayMatching(b).scaleFactor };
   });
-  expect(await wheelNotch(at.x + box!.x + box!.width / 2, at.y + box!.y + box!.height / 2, 1, true, at.scale)).toEqual({ ok: true });
+  const x = at.x + box!.x + box!.width / 2;
+  const y = at.y + box!.y + box!.height / 2;
+  // A guest has its url before it can take input: on a slow runner the page under
+  // it took the notch, and the app's size was kept. Plain notches until one lands.
+  await run(id, "window.__wheels = 0; addEventListener('wheel', () => window.__wheels++); 0");
+  await expect
+    .poll(async () => {
+      await wheelNotch(x, y, 1, false, at.scale);
+      return run<number>(id, "window.__wheels");
+    })
+    .toBeGreaterThan(0);
+  expect(await wheelNotch(x, y, 1, true, at.scale)).toEqual({ ok: true });
   await expect.poll(size).toBeCloseTo(1.1);
   expect(existsSync(join(l.dirs.userData, "zoom.json"))).toBe(false);
 });

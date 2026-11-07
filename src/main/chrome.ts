@@ -17,7 +17,7 @@
 // page says which layout it is in (`window-titlebar`): its breakpoint is in
 // CSS px, which page zoom moves away from the window's width.
 
-import { HOST_CAPS, type HostCap } from "../shared/desktopHost.generated";
+import { HOST_CAPS, WINDOW_CORNER, type HostCap } from "../shared/desktopHost.generated";
 
 export type Os = "macos" | "windows" | "linux";
 
@@ -35,10 +35,10 @@ export const NATIVE_TRAFFIC_POSITION = { x: TRAFFIC_PILL.left + 2, y: TRAFFIC_PI
 export const TITLE_BAR = { height: 32, lights: { x: 8, y: 8 } } as const;
 
 /** What this shell offers on this OS: drawing the window's own lights — and
- *  the green light's arranging, and the title bar that takes over from them in
- *  the phone layout — is a macOS thing (Windows keeps its native frame), and
- *  so is the share extension. */
-const MAC_ONLY: readonly HostCap[] = ["window-controls", "window-arrange", "window-titlebar", "share-inbox"];
+ *  the green light's arranging, the title bar that takes over from them in the
+ *  phone layout, and the window's own corners — is a macOS thing (Windows keeps
+ *  its native frame), and so is the share extension. */
+const MAC_ONLY: readonly HostCap[] = ["window-controls", "window-arrange", "window-titlebar", "window-corners", "share-inbox"];
 export const capsFor = (os: Os): HostCap[] => HOST_CAPS.filter((c) => !MAC_ONLY.includes(c) || os === "macos");
 
 export interface Point {
@@ -47,15 +47,19 @@ export interface Point {
 }
 
 /** The window's frame on macOS: whether the shell's title bar shows, where the
- *  page sits under it, and where the system's lights go. The bar shows in the
- *  phone layout out of full screen (full screen has a bar of its own, on hover). */
-export function framePlan(at: { layout: "phone" | "wide"; fullscreen: boolean }, size: { width: number; height: number }): { bar: boolean; page: Rect; lights: Point } {
+ *  page sits under it, where the system's lights go, and how round the corners
+ *  are drawn. The bar shows in the phone layout out of full screen (full screen
+ *  has a bar of its own, on hover). Corners follow the chat list (`corners`:
+ *  windowCorners.ts), so only in the wide layout: 0 leaves the system's, which
+ *  mask a see-through window as they do any other, and full screen has none. */
+export function framePlan(at: { layout: "phone" | "wide"; fullscreen: boolean; corners?: boolean }, size: { width: number; height: number }): { bar: boolean; page: Rect; lights: Point; corner: number } {
   const bar = at.layout === "phone" && !at.fullscreen;
   const top = bar ? TITLE_BAR.height : 0;
   return {
     bar,
     page: { x: 0, y: top, width: size.width, height: Math.max(0, size.height - top) },
     lights: bar ? { ...TITLE_BAR.lights } : { ...NATIVE_TRAFFIC_POSITION },
+    corner: at.corners && at.layout === "wide" && !at.fullscreen ? WINDOW_CORNER : 0,
   };
 }
 

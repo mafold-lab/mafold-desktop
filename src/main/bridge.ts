@@ -15,6 +15,7 @@ import { originOf } from "./policy";
 import type { Shell } from "./shell";
 import { clearSiteData } from "./sites";
 import { readAppearance, readAuthorizeUrl, readChatChannel, readConvId, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
+import { readWindowCorners, saveWindowCorners } from "./windowCorners";
 import {
   IPC,
   type AdoptCheck,
@@ -166,6 +167,13 @@ export function registerBridge(
     on(IPC.setWindowLayout, (_e, layout) => {
       const l = readWindowLayout(layout);
       if (l) shell.frame?.setLayout(l);
+    });
+    // `window-corners`: what the next launch makes (windowCorners.ts). The page
+    // says it on every load; only a change is written.
+    on(IPC.setWindowCorners, (_e, on) => {
+      if (typeof on !== "boolean") return;
+      const dir = app.getPath("userData");
+      if (on !== readWindowCorners(dir)) saveWindowCorners(dir, on);
     });
     on(IPC.windowControl, (_e, action) => {
       const w = shell.window;
