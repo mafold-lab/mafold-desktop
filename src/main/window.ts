@@ -21,7 +21,7 @@ import { capsFor, NATIVE_TRAFFIC_POSITION } from "./chrome";
 import { WindowFrame } from "./frame";
 import { closePage } from "./pageClose";
 import { restoreZoom, zoomOnWheel } from "./pageZoom";
-import { CLEAR, readWindowCorners } from "./windowCorners";
+import { CLEAR, readWindowCorners, windowCut } from "./windowCorners";
 import { APP_GROUND } from "../shared/appGround.generated";
 
 export const offlineUrl = () => pathToFileURL(staticPath("offline.html")).href;
@@ -86,7 +86,7 @@ export function createMainWindow(shell: Shell, opts: { startHidden: boolean; os:
   const min = minSizeFor(opts.os, saved);
   const placed = fit(saved, screen.getAllDisplays().map((d) => d.workArea), min);
   const mac = opts.os === "macos";
-  const corners = mac && readWindowCorners(app.getPath("userData"));
+  const cut = mac && readWindowCorners(app.getPath("userData")) ? windowCut() : null;
 
   const win = new BaseWindow({
     ...(placed ? { x: placed.x, y: placed.y, width: placed.width, height: placed.height } : DEFAULT_SIZE),
@@ -97,11 +97,11 @@ export function createMainWindow(shell: Shell, opts: { startHidden: boolean; os:
     title: "Mafold",
     // What shows before the page paints, between documents and around a
     // resize: the colour the page itself stands on, so nothing changes as it
-    // arrives. With corners of its own the window is see-through, and a plate
-    // under the page stands on it (frame.ts). See-through windows have no
-    // shadow unless they ask.
-    backgroundColor: corners ? CLEAR : ground(),
-    ...(corners ? { transparent: true, hasShadow: true } : {}),
+    // arrives. With corners of its own the window is see-through, and its
+    // content view takes that part over (frame.ts). See-through windows have
+    // no shadow unless they ask.
+    backgroundColor: cut ? CLEAR : ground(),
+    ...(cut ? { transparent: true, hasShadow: true } : {}),
     autoHideMenuBar: !mac,
     icon: mac ? undefined : resourcePath("icon-256.png"),
     // macOS: no title bar — the page runs to the top edge and draws the lights
@@ -120,7 +120,7 @@ export function createMainWindow(shell: Shell, opts: { startHidden: boolean; os:
   shell.window = win;
   shell.page = page;
   // Where the page sits; on macOS, the phone layout's title bar above it (frame.ts).
-  const frame = new WindowFrame(win, view, caps.includes("window-titlebar"), min === MIN_SIZE, corners ? ground() : null);
+  const frame = new WindowFrame(win, view, caps.includes("window-titlebar"), min === MIN_SIZE, ground(), cut);
   shell.frame = frame;
   if (placed?.maximized) win.maximize();
 
@@ -207,7 +207,7 @@ export function createMainWindow(shell: Shell, opts: { startHidden: boolean; os:
   // The page picks light or dark, or the system switches: the ground follows.
   const reground = () => {
     if (win.isDestroyed()) return;
-    if (!corners) win.setBackgroundColor(ground());
+    if (!cut) win.setBackgroundColor(ground());
     view.setBackgroundColor(ground());
     frame.reground(ground());
   };

@@ -25,7 +25,8 @@ type Theme = "light" | "dark";
 const BACK = 0x7f;
 const PAD = 44;
 /** Along the diagonal from the corner of the window's bounds: this far in is
- *  outside a 30pt corner (its curve is 8.8 in) and inside the system's (4.4). */
+ *  outside a 30pt corner, continuous or circle (either curve is 8.8 in), and
+ *  inside the system's (4.4). */
 const CUT = 6;
 /** Past the curve of a 30pt corner. */
 const IN = 11;
@@ -233,6 +234,22 @@ test("on, light: 30pt corners, and the system's shadow round them", async () => 
   expect(filled(p, b, CUT, ground)).toEqual(all(false));
   const f = filled(p, b, IN, ground);
   expect([f["top right"], f["bottom left"], f["bottom right"]]).toEqual([true, true, true]);
+});
+
+test("the corner is the system's continuous curve, not a circle", async () => {
+  l = await started({ MAFOLD_DESKTOP_USER_DATA: profileFor(true, "light") });
+  const b = await stage(l, "light");
+  const p = await shoot(l.app, b, "curve");
+  // The window's first row, in from its top right corner, away from the lights.
+  // A 30pt circle has met the edge 30 in. The continuous curve as big as it meets
+  // it 46 in, so at 30 it is still leaving, and the row is a blend of the window
+  // and what's behind it. Further in than 22 the two are the same shape.
+  const row = Array.from({ length: 30 }, (_, i) => [16 + i, p.at(b.width - 1 - (16 + i), 0)[0]]);
+  console.log(`window corners: top row in from the corner: ${JSON.stringify(row)}`);
+  const ground = hex(APP_GROUND.light)[0];
+  const at = (d: number) => p.at(b.width - 1 - d, 0)[0];
+  expect(at(28), "still leaving the edge where a circle has met it").toBeLessThan(ground - 20);
+  expect(at(50), "past the curve, the plain edge").toBeGreaterThan(ground - 6);
 });
 
 test("the appearance changes under an open window, both ways, and the corners and the shadow stay", async () => {

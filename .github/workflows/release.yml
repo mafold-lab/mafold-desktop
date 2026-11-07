@@ -157,6 +157,14 @@ jobs:
             cat "$RUNNER_TEMP/launch-check.log" || true
             echo "::error::$APP exited at launch (status $STATUS) — is the profile authorising its entitlements?"; exit 1
           fi
+      # The one piece of native code of ours in the app process, and it fails
+      # quietly: a cut macOS refuses is an ordinary window and a line in a log.
+      - name: The window's corner cut is in the app, signed, and the app loads it
+        run: |
+          set -euo pipefail
+          for app in release/mac*/Mafold.app; do
+            bash scripts/check-window-cut.sh "$app" UGZPUZZYDD
+          done
       - name: The bundled cli kept its own signature
         run: |
           for app in release/mac*/Mafold.app; do

@@ -5,7 +5,7 @@ import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 
 import { readSavedAppearance, saveAppearance } from "../src/main/appearance";
-import { readWindowCorners, saveWindowCorners } from "../src/main/windowCorners";
+import { readWindowCorners, saveWindowCorners, windowCut } from "../src/main/windowCorners";
 import { resolveConfig, PRODUCTION } from "../src/main/config";
 import { Strings } from "../src/main/i18n";
 import { clip, RateLimit, RecentActs, uniqueName } from "../src/main/limits";
@@ -205,6 +205,9 @@ describe("the window's corners kept across launches", () => {
   });
   it("saving where it can't write fails nothing", () => {
     expect(() => saveWindowCorners(join(userData(), "no-such-dir"), true)).not.toThrow();
+  });
+  it("a cut that won't load is no cut, so the window is an ordinary one", () => {
+    expect(windowCut()).toBeNull();
   });
 });
 

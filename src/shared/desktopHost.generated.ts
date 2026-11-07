@@ -126,10 +126,11 @@ export type HostCap = (typeof HOST_CAPS)[number];
  *  doesn't turn to Web Push; the shell drops it, the main window notifies. */
 export const CHAT_WINDOW_CAPS: readonly HostCap[] = ["notify", "external-links", "chat-windows", "chat-channel-windows"];
 
-/** The main window's corners under `window-corners`, in points. The chat list's
- *  frame (mafold-web lib/sidebarWidth.ts `LIST_FRAME`, radius 28) stands 2 from
- *  the window's top and 3 from its side; this keeps the two curves running side
- *  by side, 3 apart at the side and 2 at the top. */
+/** The main window's corners under `window-corners`, in points, in macOS's
+ *  continuous curve: CSS gets the same corner from `corner-shape: squircle` at
+ *  55, within half a pixel, and it is as big as a 30 circle. The chat list's frame
+ *  (mafold-web lib/sidebarWidth.ts `listCorners`) stands 2 from the window's top
+ *  and 3 from its side, and runs beside this curve at that distance. */
 export const WINDOW_CORNER = 30;
 
 /** `soloChannel` and `openChatWindow`'s channel for a conversation's #all, which

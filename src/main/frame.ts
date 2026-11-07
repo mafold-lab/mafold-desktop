@@ -26,18 +26,16 @@
 // title bar does (System Settings ▸ Desktop & Dock); the lights are the
 // system's own, moved into it. Its title follows the window's ("(3) Mafold").
 //
-// With corners of its own (windowCorners.ts) the window is see-through and has
-// nothing of its own to show in a gap: a plate, a plain view as wide as the
-// window, takes over from the root as what stands under the page, cut to the
-// same corner. A view's corner cuts that view alone, never what's in it or over
-// it, so the bar (phone layout) and the loading cover (cover.ts) each take the
-// corner themselves or stand where there is none.
+// With corners of its own (windowCorners.ts) the window is see-through and cut
+// as a whole, at the layer everything in it stands on, so nothing here but the
+// layout decides anything about the corners: the page, the bar (phone layout)
+// and the loading cover (cover.ts) stand in the one shape.
 
-import { nativeTheme, View, WebContentsView, type BaseWindow, type Rectangle } from "electron";
+import { nativeTheme, WebContentsView, type BaseWindow, type Rectangle, type View } from "electron";
 
 import { framePlan, TITLE_BAR, type Point } from "./chrome";
 import { log } from "./log";
-import { CLEAR } from "./windowCorners";
+import type { WindowCut } from "./windowCorners";
 import { MAC_MIN_SIZE, MIN_SIZE } from "./windowState";
 import type { WindowLayout } from "../shared/desktopHost.generated";
 
@@ -75,8 +73,6 @@ const barDocument = (title: string) =>
 
 export class WindowFrame {
   private readonly root: View;
-  /** Under the page in a window with corners of its own; none without. */
-  private readonly plate: View | null = null;
   private corner = 0;
   private bar: WebContentsView | null = null;
   /** The bar is in the window now (not just made: out of it, it is nowhere —
@@ -96,22 +92,19 @@ export class WindowFrame {
   /** `bars`: this shell draws the phone layout's title bar (macOS, the cap
    *  `window-titlebar`); without it the page always fills the window.
    *  `narrow`: the window may already go down to a phone's width (windowState.ts).
-   *  `plate`: the ground, for a window with corners of its own (windowCorners.ts). */
+   *  `ground`: the page's own, for what's under it.
+   *  `cut`: for a window with corners of its own (windowCorners.ts). */
   constructor(
     private readonly win: BaseWindow,
     private readonly page: WebContentsView,
     private readonly bars: boolean,
     narrow: boolean,
-    plate: string | null = null,
+    ground: string,
+    private readonly cut: WindowCut | null = null,
   ) {
     this.root = win.contentView;
-    // What shows in a gap while the window is being resized: the page's own ground.
-    this.root.setBackgroundColor(plate ? CLEAR : win.getBackgroundColor());
-    if (plate) {
-      this.plate = new View();
-      this.plate.setBackgroundColor(plate);
-      this.root.addChildView(this.plate);
-    }
+    // What shows in a gap while the window is being resized.
+    this.root.setBackgroundColor(ground);
     this.root.addChildView(page);
     this.narrow = narrow;
     // Until the page says, the window's width guesses: a narrow window was left
@@ -129,7 +122,7 @@ export class WindowFrame {
     return this.page.getBounds();
   }
 
-  /** How round the window's corners are drawn now, for the loading cover. */
+  /** How round the window's corners are cut now; 0 is the system's. */
   get corners(): number {
     return this.corner;
   }
@@ -184,7 +177,7 @@ export class WindowFrame {
   /** Light or dark changed (window.ts, after the window's own ground): the
    *  root under the views, and the bar before its document repaints. */
   reground(ground: string): void {
-    (this.plate ?? this.root).setBackgroundColor(ground);
+    this.root.setBackgroundColor(ground);
     this.bar?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? LOOK.dark.bar : LOOK.light.bar);
   }
 
@@ -194,13 +187,11 @@ export class WindowFrame {
     const fullscreen = win.isFullScreen();
     const b = this.root.getBounds();
     const [width, height] = b.width > 0 && b.height > 0 ? [b.width, b.height] : win.getContentSize();
-    const plan = framePlan({ layout: this.layout, fullscreen, corners: !!this.plate }, { width, height });
+    const plan = framePlan({ layout: this.layout, fullscreen, corners: !!this.cut }, { width, height });
     this.page.setBounds(plan.page);
-    this.plate?.setBounds({ x: 0, y: 0, width, height });
-    if (this.plate && plan.corner !== this.corner) {
+    if (this.cut && plan.corner !== this.corner) {
       this.corner = plan.corner;
-      this.plate.setBorderRadius(plan.corner);
-      this.page.setBorderRadius(plan.corner);
+      this.cut(win, plan.corner);
       // The system's shadow is the window's shape, read once until it's told.
       win.invalidateShadow();
     }

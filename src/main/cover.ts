@@ -33,7 +33,7 @@ let showing: { view: WebContentsView; lift: CoverLift } | null = null;
  *  标题栏在它上面(frame.ts),盖层只盖页面那一块,标题栏照常露着。 */
 export function raiseCover(
   win: BaseWindow,
-  opts: CoverAt & { ground: () => string; page: WebContents; frame: { pageBounds(): Rectangle; corners: number; follow(fn: () => void): () => void } },
+  opts: CoverAt & { ground: () => string; page: WebContents; frame: { pageBounds(): Rectangle; follow(fn: () => void): () => void } },
 ): void {
   const view = new WebContentsView({
     webPreferences: {
@@ -53,11 +53,9 @@ export function raiseCover(
   cover.setWindowOpenHandler(() => ({ action: "deny" }));
 
   // 页面那一层每次排好位置(frame.ts),盖层跟着 —— 窗口改大小也在其中。
-  let corner = 0;
   const fit = () => {
     if (win.isDestroyed()) return;
     view.setBounds(opts.frame.pageBounds());
-    if (opts.frame.corners !== corner) view.setBorderRadius((corner = opts.frame.corners));
   };
   fit();
   win.contentView.addChildView(view);

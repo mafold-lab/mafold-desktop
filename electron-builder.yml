@@ -24,6 +24,11 @@ files:
   - static/**
   - package.json
 
+# A native module (scripts/build-window-cut.sh): the system loads it, and signs
+# off on it, from a real file, not from inside app.asar.
+asarUnpack:
+  - dist/native/**
+
 # Icons the OS opens by path (tray, Windows notifications) — outside app.asar.
 # And the mafold-cli build this release bundles, one per architecture
 # (scripts/fetch-cli.mjs, pinned in cli.lock.json): copied to ~/.mafold the first
