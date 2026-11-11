@@ -103,6 +103,11 @@ export const HOST_CAPS = [
   // with nobody listening they go to the system browser, as in a shell without
   // the cap. `clearSiteData` forgets what those sites stored.
   "site-tabs",
+  // `site-incognito` — a site tab in `SITE_INCOGNITO_PARTITION`, held in memory.
+  // What such a tab opens comes back on `on("open-incognito-link")`. The shell
+  // forgets it all when the last contents of that session goes, whoever closed
+  // it: the page can't leave anything behind by reloading or dying.
+  "site-incognito",
   // `chat-windows` — a conversation in a window of its own: `openChatWindow`
   // opens one (or brings it up). Such a window is the web app again with
   // `soloChat` set and only the caps of `CHAT_WINDOW_CAPS`; `closeChatWindow`
@@ -181,7 +186,8 @@ export type HostCommand =
   | "prev-chat"
   // `site-tabs`: pressed in a site, whose keys never reach the page.
   | "focus-address"
-  | "close-tab";
+  | "close-tab"
+  | "new-incognito";
 
 export const HOST_COMMANDS: readonly HostCommand[] = [
   "new-chat",
@@ -192,6 +198,7 @@ export const HOST_COMMANDS: readonly HostCommand[] = [
   "prev-chat",
   "focus-address",
   "close-tab",
+  "new-incognito",
 ];
 
 export type Appearance = "light" | "dark" | "system";
@@ -201,12 +208,16 @@ export interface OAuthResult {
   error?: string;
 }
 
-export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs" | "open-link";
+export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs" | "open-link" | "open-incognito-link";
 
 /** Where sites on the app page keep their logins (`site-tabs`). Never the
  *  page's own session: a site can't see the Mafold sign-in, and nothing a site
  *  stores reaches the page. */
 export const SITE_PARTITION = "persist:mafold-sites";
+
+/** Where incognito tabs keep theirs (`site-incognito`). No `persist:`: Electron
+ *  holds this session in memory, so nothing of it reaches the disk. */
+export const SITE_INCOGNITO_PARTITION = "mafold-sites-incognito";
 
 /**
  * The shell's own update, as far as it has got. `ready` stays until the shell
@@ -743,6 +754,8 @@ export interface MafoldHost {
   /** `site-tabs`: a link to open. While someone listens links come here;
    *  call the returned `off` and they go to the system browser again. */
   on(ev: "open-link", cb: (url: string) => void): () => void;
+  /** `site-incognito`: a link an incognito tab opened: it stays incognito. */
+  on(ev: "open-incognito-link", cb: (url: string) => void): () => void;
   /** The page is (true) / is no longer (false) drawing the window's lights;
    *  the shell hides / shows the system's own accordingly. */
   setWindowControls(drawn: boolean): void;

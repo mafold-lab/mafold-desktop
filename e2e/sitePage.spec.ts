@@ -364,6 +364,63 @@ test("with the Settings switch on, a checkout goes to the default browser", asyn
   expect(await count("[data-app-tab]")).toBe(0);
 });
 
+test("an incognito tab: from the + menu, apart from the others, forgotten when it closes", async () => {
+  await tap(url("/titled"));
+  const plain = await guestOn("/titled");
+  await run(plain, `document.cookie = "plain=1; path=/"`);
+  await page.getByRole("button", { name: "Apps" }).click();
+  await page.getByText("New incognito tab").click();
+  await expect(page.getByTestId("site-incognito-start")).toBeVisible();
+  await expect(page.getByTestId("site-incognito")).toBeVisible();
+  await expect(page.locator("input[aria-label='Address']")).toBeFocused();
+  await expect(tabs()).toHaveCount(2);
+  expect(await guests()).toHaveLength(1); // no site until there's an address
+  await settle(1200);
+  await shot("7-incognito-new");
+
+  await page.keyboard.insertText(url("/next"));
+  await page.keyboard.press("Enter");
+  const hidden = await guestOn("/next");
+  await expect(page.getByTestId("site-incognito-start")).toHaveCount(0);
+  expect(await run(hidden, "document.cookie")).not.toContain("plain=1");
+  await run(hidden, `document.cookie = "hidden=1; path=/"`);
+  await settle(1200);
+  await shot("8-incognito-site");
+
+  await tap(url("/titled"), "again");
+  await expect(openTab()).not.toContainText("next");
+  await expect(tabs()).toHaveCount(2); // the plain tab, not a third
+  await page.locator("[data-app-tab]").nth(1).click();
+  await openTab().getByRole("button", { name: "Close" }).click();
+  await expect(tabs()).toHaveCount(1);
+  await expect(page.getByText("Last incognito tab closed.", { exact: false })).toBeVisible();
+  const left = () =>
+    l.app.evaluate(async ({ session }) => (await session.fromPartition("mafold-sites-incognito").cookies.get({})).length);
+  await expect.poll(left).toBe(0);
+  expect(await run(plain, "document.cookie")).toContain("plain=1");
+});
+
+test("⌘⇧N opens an incognito tab from the page and from a site, and only one waits", async () => {
+  await tap(url("/titled"));
+  const id = await guestOn("/titled");
+  await l.app.evaluate(
+    ({ webContents }, a) => {
+      const w = webContents.fromId(a.id)!;
+      w.focus();
+      // The original: the guest's own is sealed against the page (sites.ts).
+      const send = Object.getPrototypeOf(w).sendInputEvent.bind(w) as Electron.WebContents["sendInputEvent"];
+      send({ type: "keyDown", keyCode: "N", modifiers: ["shift", a.mod as "control"] });
+      send({ type: "keyUp", keyCode: "N", modifiers: ["shift", a.mod as "control"] });
+    },
+    { id, mod: process.platform === "darwin" ? "meta" : "control" },
+  );
+  await expect(page.getByTestId("site-incognito-start")).toBeVisible();
+  await expect(tabs()).toHaveCount(2);
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+Shift+N" : "Control+Shift+N");
+  await settle(300);
+  await expect(tabs()).toHaveCount(2);
+});
+
 test("× closes the tab; the last one closes the page and the chat is back", async () => {
   await tap(url("/titled"));
   const id = await guestOn("/titled");

@@ -21,7 +21,7 @@ import { zoomOnWheel } from "./pageZoom";
 import { decideNavigation, decideWindowOpen, hardenSite, mayAttachSite, permissionAllowed, shellUserAgent } from "./policy";
 import type { Shell } from "./shell";
 import { accountChoice, accountLabel, KEYCHAIN_ACCESS_GROUP } from "./webauthn";
-import { SITE_PARTITION } from "../shared/desktopHost.generated";
+import { SITE_INCOGNITO_PARTITION, SITE_PARTITION } from "../shared/desktopHost.generated";
 
 export const PARTITION = "persist:mafold";
 
@@ -79,7 +79,7 @@ export function guardAllContents(shell: Shell): void {
         return { action: "deny" };
       }
       // Its session is its opener's: a popup and its opener can't be apart.
-      const partition = contents.session === electronSession.fromPartition(SITE_PARTITION) ? SITE_PARTITION : PARTITION;
+      const partition = [SITE_PARTITION, SITE_INCOGNITO_PARTITION].find((p) => contents.session === electronSession.fromPartition(p)) ?? PARTITION;
       return {
         action: "allow",
         overrideBrowserWindowOptions: {

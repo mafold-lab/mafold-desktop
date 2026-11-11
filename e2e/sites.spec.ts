@@ -8,6 +8,7 @@ import { expect, test } from "@playwright/test";
 import { launch, startOrigins, type Launched, type Origins } from "./fixtures";
 
 const SITE_PARTITION = "persist:mafold-sites";
+const SITE_INCOGNITO_PARTITION = "mafold-sites-incognito";
 
 let origins: Origins;
 let l: Launched;
@@ -94,6 +95,100 @@ const refused = async () => {
 test("the shell offers site tabs on every system", async () => {
   const caps = await l.page.evaluate(() => [...(window as unknown as { mafoldHost: { caps: string[] } }).mafoldHost.caps]);
   expect(caps).toContain("site-tabs");
+  expect(caps).toContain("site-incognito");
+});
+
+test.describe("incognito tabs", () => {
+  /** One more tag, leaving the others where they are. */
+  const addSecond = (attrs: Attrs) =>
+    l.page.evaluate((a) => {
+      const w = document.createElement("webview");
+      for (const [k, v] of Object.entries(a)) w.setAttribute(k, v);
+      w.style.cssText = "position:fixed;left:0;top:0;width:640px;height:480px;display:flex";
+      document.body.append(w);
+    }, attrs);
+  const dropTags = () => l.page.evaluate(() => document.querySelectorAll("webview").forEach((w) => w.remove()));
+  const cookies = () =>
+    l.app.evaluate(async ({ session }, partition) => (await session.fromPartition(partition).cookies.get({})).map((c) => c.name), SITE_INCOGNITO_PARTITION);
+
+  test("the session lives in memory and shares nothing with the sites'", async () => {
+    await addTag(site());
+    const plain = await loaded();
+    await run(plain, `document.cookie = "plain=1; path=/"`);
+    await addSecond(site({ src: `${origins.api}/opened`, partition: SITE_INCOGNITO_PARTITION }));
+    const hidden = await loaded("/opened");
+    expect(await run(hidden, "document.cookie")).not.toContain("plain=1");
+    await run(hidden, `document.cookie = "hidden=1; path=/"`);
+    expect(await run(plain, "document.cookie")).not.toContain("hidden=1");
+    const memory = await l.app.evaluate(({ session }, partition) => {
+      const s = session.fromPartition(partition);
+      return { persistent: s.isPersistent(), path: s.storagePath };
+    }, SITE_INCOGNITO_PARTITION);
+    expect(memory).toEqual({ persistent: false, path: null });
+  });
+
+  test("stays while one tab is left, and is gone when the last one closes", async () => {
+    await addTag(site({ partition: SITE_INCOGNITO_PARTITION }));
+    const first = await loaded();
+    await run(first, `document.cookie = "hidden=1; path=/"; localStorage.setItem("hidden", "1")`);
+    await addSecond(site({ src: `${origins.api}/opened`, partition: SITE_INCOGNITO_PARTITION }));
+    const second = await loaded("/opened");
+    await l.page.evaluate(() => document.querySelector("webview")?.remove());
+    await expect.poll(async () => (await guests()).length).toBe(1);
+    expect(await run(second, "document.cookie")).toContain("hidden=1");
+
+    await dropTags();
+    await expect.poll(cookies).toEqual([]);
+    await addTag(site({ partition: SITE_INCOGNITO_PARTITION }));
+    const again = await loaded();
+    expect(await run(again, "document.cookie")).not.toContain("hidden=1");
+    expect(await run(again, `localStorage.getItem("hidden")`)).toBeNull();
+  });
+
+  test("a page reload empties it too, and the sites' session stays", async () => {
+    await addTag(site());
+    const plain = await loaded();
+    await run(plain, `document.cookie = "plain=1; path=/"`);
+    await addSecond(site({ src: `${origins.api}/opened`, partition: SITE_INCOGNITO_PARTITION }));
+    const hidden = await loaded("/opened");
+    await run(hidden, `document.cookie = "hidden=1; path=/"`);
+    await l.page.reload();
+    await l.page.waitForSelector("#h");
+    await expect.poll(cookies).toEqual([]);
+    await addTag(site());
+    expect(await run(await loaded(), "document.cookie")).toContain("plain=1");
+  });
+
+  test("a link stays incognito, on its own event", async () => {
+    await takeLinks();
+    await l.page.evaluate(() => {
+      const host = (window as unknown as { mafoldHost: { on(e: string, cb: (u: string) => void): () => void } }).mafoldHost;
+      const w = window as unknown as { __hidden: string[] };
+      w.__hidden = [];
+      host.on("open-incognito-link", (u) => w.__hidden.push(u));
+    });
+    await addTag(site({ partition: SITE_INCOGNITO_PARTITION }));
+    const id = await loaded();
+    await press(id, "#tab");
+    await expect.poll(() => l.page.evaluate(() => (window as unknown as { __hidden: string[] }).__hidden)).toEqual([`${origins.api}/opened`]);
+    expect(await links()).toEqual([]);
+  });
+
+  test("a sign-in popup is in the same session", async () => {
+    await takeLinks();
+    await addTag(site({ partition: SITE_INCOGNITO_PARTITION }));
+    const id = await loaded();
+    await run(id, `document.cookie = "hidden=1; path=/"`);
+    const opened = l.app.waitForEvent("window");
+    await press(id, "#popup");
+    await opened;
+    await expect.poll(() => run(id, "window.__said")).toBe("signed in");
+    const same = await l.app.evaluate(({ session, webContents }, partition) => {
+      const w = webContents.getAllWebContents().find((c) => c.getURL().endsWith("/signin"));
+      return w ? w.session === session.fromPartition(partition) : null;
+    }, SITE_INCOGNITO_PARTITION);
+    expect(same).toBe(true);
+  });
 });
 
 test.describe("who gets a <webview>", () => {

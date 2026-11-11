@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="light dark" />
+    <style>
+      :root {
+        --bg: #fff;
+        --text: #1a1a1a;
+        --muted: #6b6b6b;
+        --line: #e6e6e6;
+        --accent: #e8603c;
+        --on-accent: #fff;
+        --tile: #f6f6f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1c1c1e;
+          --text: #f2f2f2;
+          --muted: #9a9a9e;
+          --line: #333336;
+          --accent: #ff7a54;
+          --on-accent: #1c1c1e;
+          --tile: #2a2a2d;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        width: 320px;
+        font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif;
+        color: var(--text);
+        background: var(--bg);
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 16px 10px;
+      }
+      header img { width: 20px; height: 20px; border-radius: 5px; }
+      header b { font-size: 14px; }
+      .body { padding: 0 16px 16px; }
+      .lead { color: var(--muted); margin: 0 0 12px; }
+      ul { list-style: none; margin: 0 0 14px; padding: 0; }
+      li {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 10px;
+        background: var(--tile);
+        border-radius: 9px;
+        margin-bottom: 6px;
+      }
+      li .fav { width: 16px; height: 16px; border-radius: 4px; flex: none; }
+      li .name { font-weight: 600; }
+      li .host { color: var(--muted); font-size: 12px; }
+      button {
+        width: 100%;
+        border: 0;
+        border-radius: 10px;
+        padding: 11px;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.primary { background: var(--accent); color: var(--on-accent); }
+      button[disabled] { opacity: 0.55; cursor: default; }
+      .idle { color: var(--muted); text-align: center; padding: 18px 8px; }
+      .done { color: var(--accent); font-weight: 600; text-align: center; padding: 8px; }
+      .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img src="icons/icon-32.png" alt="" />
+      <b>Mafold Browser Import</b>
+    </header>
+    <div class="body" id="root"></div>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

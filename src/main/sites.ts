@@ -13,16 +13,36 @@ import { guardDownloads, guardPasskeyPicker } from "./security";
 import type { Shell } from "./shell";
 import { SiteGrants } from "./siteGrants";
 import { attachContextMenu } from "./contextMenu";
-import { SITE_PARTITION } from "../shared/desktopHost.generated";
+import { SITE_INCOGNITO_PARTITION, SITE_PARTITION } from "../shared/desktopHost.generated";
 
 let grants: SiteGrants | null = null;
-const asking = new Map<string, Promise<boolean>>();
 
-/** Every site contents the app creates, and the session they share. */
+/** Every site contents the app creates, and the sessions they share. */
 export function guardSites(shell: Shell): void {
-  guardSiteSession(shell);
+  grants = new SiteGrants(join(app.getPath("userData"), "site-permissions.json"));
+  guardSiteSession(shell, SITE_PARTITION, grants);
+  guardIncognito(shell);
   app.on("web-contents-created", (_e, contents) => {
     if (contents.getType() === "webview") guardSite(contents, shell);
+  });
+}
+
+/** Incognito tabs: the same guards, on a session held in memory, with answers
+ *  that are never written down. It outlives its tabs unless told otherwise, so
+ *  it is emptied here, when the last contents in it goes: a closed tab, a popup,
+ *  a page that reloaded or died. The page keeps these tabs loaded for that
+ *  (`liveSiteTabs`). */
+function guardIncognito(shell: Shell): void {
+  const said = new SiteGrants(null);
+  const ses = guardSiteSession(shell, SITE_INCOGNITO_PARTITION, said);
+  let open = 0;
+  app.on("web-contents-created", (_e, contents) => {
+    if (contents.session !== ses) return;
+    open += 1;
+    contents.once("destroyed", () => {
+      open -= 1;
+      if (open === 0) void forget(ses, said).catch((err: unknown) => log("incognito session not cleared:", String(err)));
+    });
   });
 }
 
@@ -84,7 +104,7 @@ function guardSite(contents: WebContents, shell: Shell): void {
     const key = siteShortcut(input, process.platform === "darwin");
     if (!key) return;
     e.preventDefault();
-    if (key === "close-tab" || key === "focus-address") shell.emit("command", key);
+    if (key === "close-tab" || key === "focus-address" || key === "new-incognito") shell.emit("command", key);
     else if (key === "back" && contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack();
     else if (key === "forward" && contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward();
   });
@@ -92,11 +112,9 @@ function guardSite(contents: WebContents, shell: Shell): void {
   attachContextMenu(contents, shell);
 }
 
-function guardSiteSession(shell: Shell): Session {
-  const ses = electronSession.fromPartition(SITE_PARTITION);
+function guardSiteSession(shell: Shell, partition: string, saved: SiteGrants): Session {
+  const ses = electronSession.fromPartition(partition);
   ses.setUserAgent(siteUserAgent(ses.getUserAgent()));
-  const saved = new SiteGrants(join(app.getPath("userData"), "site-permissions.json"));
-  grants = saved;
 
   ses.setPermissionRequestHandler((wc, permission, callback, details) => {
     const d = details as { requestingUrl?: string; mediaTypes?: string[] };
@@ -130,7 +148,7 @@ async function ask(shell: Shell, saved: SiteGrants, origin: string, asks: string
   const open = asks.filter((_a, i) => known[i] === undefined);
   if (!open.length) return true;
   const key = `${origin} ${open.join("+")}`;
-  const held = asking.get(key);
+  const held = saved.asking.get(key);
   if (held) return held;
   const question = (async () => {
     const f = (k: string, vars?: Record<string, string>) => shell.strings.frozen(k, vars);
@@ -152,18 +170,21 @@ async function ask(shell: Shell, saved: SiteGrants, origin: string, asks: string
       log("site permission question failed:", String(err));
       return false;
     })
-    .finally(() => asking.delete(key));
-  asking.set(key, question);
+    .finally(() => saved.asking.delete(key));
+  saved.asking.set(key, question);
   return question;
+}
+
+async function forget(ses: Session, saved: SiteGrants | null): Promise<void> {
+  await ses.clearStorageData();
+  await ses.clearCache();
+  await ses.clearAuthCache();
+  saved?.clear();
 }
 
 /** Settings ▸ forget what sites stored here, and what they were allowed. */
 export async function clearSiteData(): Promise<boolean> {
-  const ses = electronSession.fromPartition(SITE_PARTITION);
-  await ses.clearStorageData();
-  await ses.clearCache();
-  await ses.clearAuthCache();
-  grants?.clear();
+  await forget(electronSession.fromPartition(SITE_PARTITION), grants);
   return true;
 }
 

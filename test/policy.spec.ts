@@ -15,7 +15,7 @@ import {
   siteShortcut,
   siteUserAgent,
 } from "../src/main/policy";
-import { SITE_PARTITION } from "../src/shared/desktopHost.generated";
+import { SITE_INCOGNITO_PARTITION, SITE_PARTITION } from "../src/shared/desktopHost.generated";
 
 describe("shellUserAgent", () => {
   it("drops Electron's and the app's tokens and names the desktop app", () => {
@@ -133,6 +133,8 @@ describe("a site on a tab", () => {
   it("may stand only on our page, in the sites' own partition, showing the web", () => {
     const ok = { partition: SITE_PARTITION, src: "https://github.com/" };
     expect(mayAttachSite("https://mafold.com/app", ok, o)).toBe(true);
+    expect(mayAttachSite("https://mafold.com/app", { ...ok, partition: SITE_INCOGNITO_PARTITION }, o)).toBe(true);
+    expect(mayAttachSite("https://evil.example/", { ...ok, partition: SITE_INCOGNITO_PARTITION }, o)).toBe(false);
     expect(mayAttachSite("https://evil.example/", ok, o)).toBe(false);
     expect(mayAttachSite("file:///offline.html", ok, o)).toBe(false);
     expect(mayAttachSite("https://mafold.com/app", { ...ok, partition: "persist:mafold" }, o)).toBe(false);
@@ -186,6 +188,9 @@ describe("a site on a tab", () => {
     expect(siteShortcut(key({ key: "]", meta: true }), true)).toBe("forward");
     expect(siteShortcut(key({ key: "ArrowLeft", alt: true }), false)).toBe("back");
     expect(siteShortcut(key({ key: "ArrowRight", alt: true }), false)).toBe("forward");
+    expect(siteShortcut(key({ key: "N", meta: true, shift: true }), true)).toBe("new-incognito");
+    expect(siteShortcut(key({ key: "N", control: true, shift: true }), false)).toBe("new-incognito");
+    expect(siteShortcut(key({ key: "n", meta: true }), true)).toBeNull();
   });
 
   it("leaves every other key to the site", () => {

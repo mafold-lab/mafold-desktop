@@ -1,5 +1,6 @@
 // What the person said a site may use (camera, microphone, location, …),
 // remembered across restarts. The questions are sites.ts; this is the file.
+// With no file (incognito tabs) it lasts as long as the object.
 
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -10,8 +11,11 @@ type Said = Record<string, Record<string, boolean>>;
 
 export class SiteGrants {
   private said: Said = Object.create(null) as Said;
+  /** The questions on screen, one per site and thing. */
+  readonly asking = new Map<string, Promise<boolean>>();
 
-  constructor(private file: string) {
+  constructor(private file: string | null) {
+    if (!file) return;
     try {
       const raw = JSON.parse(readFileSync(file, "utf8")) as unknown;
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
@@ -32,6 +36,7 @@ export class SiteGrants {
 
   set(origin: string, ask: string, allowed: boolean): void {
     this.said[origin] = { ...this.said[origin], [ask]: allowed };
+    if (!this.file) return;
     try {
       mkdirSync(dirname(this.file), { recursive: true });
       const next = `${this.file}.next`;
@@ -44,6 +49,6 @@ export class SiteGrants {
 
   clear(): void {
     this.said = Object.create(null) as Said;
-    rmSync(this.file, { force: true });
+    if (this.file) rmSync(this.file, { force: true });
   }
 }

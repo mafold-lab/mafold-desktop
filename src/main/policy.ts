@@ -4,7 +4,7 @@
 // to the events.
 
 import type { ShellConfig } from "./config";
-import { SITE_PARTITION } from "../shared/desktopHost.generated";
+import { SITE_INCOGNITO_PARTITION, SITE_PARTITION } from "../shared/desktopHost.generated";
 
 type Origins = Pick<ShellConfig, "webOrigin" | "apiOrigin">;
 
@@ -111,7 +111,8 @@ export function decideSiteNavigation(raw: string): "allow" | "external" | "deny"
  *  a site from the web, in the sites' own partition (they never share the
  *  Mafold sign-in). `embedder`: the url of the top-level document asking. */
 export function mayAttachSite(embedder: string, params: { partition?: string; src?: string }, o: Origins): boolean {
-  if (parse(embedder)?.origin !== o.webOrigin || params.partition !== SITE_PARTITION) return false;
+  if (parse(embedder)?.origin !== o.webOrigin) return false;
+  if (params.partition !== SITE_PARTITION && params.partition !== SITE_INCOGNITO_PARTITION) return false;
   const src = parse(params.src ?? "");
   return src?.protocol === "https:" || src?.protocol === "http:";
 }
@@ -181,8 +182,8 @@ export const siteQuestion = (asks: readonly string[]): string =>
   `desktop.site.ask.${[...asks].sort().map((a, i) => (i ? `And${a[0].toUpperCase()}${a.slice(1)}` : a)).join("")}`;
 
 /** Keys pressed in a site never reach the page. These are the ones a tab owes
- *  the person: `close-tab` and `focus-address` go to the page as commands. */
-export type SiteKey = "close-tab" | "focus-address" | "back" | "forward";
+ *  the person: all but `back` and `forward` go to the page as commands. */
+export type SiteKey = "close-tab" | "focus-address" | "new-incognito" | "back" | "forward";
 
 export function siteShortcut(
   input: { type: string; key: string; control: boolean; meta: boolean; alt: boolean; shift: boolean },
@@ -191,6 +192,7 @@ export function siteShortcut(
   if (input.type !== "keyDown") return null;
   const mod = mac ? input.meta && !input.control : input.control && !input.meta;
   const key = input.key.toLowerCase();
+  if (mod && !input.alt && input.shift && key === "n") return "new-incognito";
   if (mod && !input.alt && !input.shift) {
     if (key === "w") return "close-tab";
     if (key === "l") return "focus-address";

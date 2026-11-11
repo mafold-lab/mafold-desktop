@@ -4,7 +4,7 @@
 // (window, tray, menu, bridge, …) don't import each other in circles.
 
 import { appendFileSync } from "node:fs";
-import { shell as electronShell, webContents as electronWebContents, type BaseWindow, type WebContents } from "electron";
+import { session as electronSession, shell as electronShell, webContents as electronWebContents, type BaseWindow, type WebContents } from "electron";
 
 import type { ChatWindows } from "./chatWindows";
 import type { ShellConfig } from "./config";
@@ -14,7 +14,7 @@ import { RateLimit, RecentActs } from "./limits";
 import { log, redact } from "./log";
 import { PendingAuth } from "./oauth";
 import { isExternalUrl } from "./policy";
-import { IPC, type HostEventEnvelope, type HostEventName, type UnreadSummary } from "../shared/desktopHost.generated";
+import { IPC, SITE_INCOGNITO_PARTITION, type HostEventEnvelope, type HostEventName, type UnreadSummary } from "../shared/desktopHost.generated";
 
 export class Shell {
   window: BaseWindow | null = null;
@@ -180,9 +180,10 @@ export class Shell {
   }
 
   /** A link for a tab of the app page. The tabs are in the main window, so a
-   *  link from a conversation's own window brings that one up. */
+   *  link from a conversation's own window brings that one up, and a link from
+   *  an incognito tab stays incognito. */
   openTab(url: string, from: WebContents): void {
-    this.emit("open-link", url);
+    this.emit(from.session === electronSession.fromPartition(SITE_INCOGNITO_PARTITION) ? "open-incognito-link" : "open-link", url);
     if (this.chats?.owns(from)) this.showWindow();
   }
 
