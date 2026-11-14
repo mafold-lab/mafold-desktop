@@ -4,7 +4,7 @@
 // clipped, before anything native sees it. Pure, so test/validate.spec.ts
 // covers it without Electron.
 
-import { ALL_CHANNEL, HOST_COMMANDS, WINDOW_ACTIONS, WINDOW_LAYOUTS, type Appearance, type HostEventName, type HostNotification, type UnreadSummary, type WindowAction, type WindowLayout } from "../shared/desktopHost.generated";
+import { ALL_CHANNEL, HOST_COMMANDS, SITE_AGENT_KEYS, WINDOW_ACTIONS, WINDOW_LAYOUTS, type Appearance, type HostEventName, type HostNotification, type SiteAgentAct, type SiteAgentKey, type UnreadSummary, type WindowAction, type WindowLayout } from "../shared/desktopHost.generated";
 import { clip } from "./limits";
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -59,7 +59,7 @@ export function readNotification(v: unknown): HostNotification | null {
 export const readAppearance = (v: unknown): Appearance | null => (v === "light" || v === "dark" || v === "system" ? v : null);
 
 export const readEventName = (v: unknown): HostEventName | null =>
-  v === "navigate" || v === "share" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" || v === "update" || v === "logs" || v === "open-link" || v === "open-incognito-link" ? v : null;
+  v === "navigate" || v === "share" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" || v === "update" || v === "logs" || v === "open-link" || v === "open-incognito-link" || v === "site-agent" ? v : null;
 
 export const readWindowAction = (v: unknown): WindowAction | null =>
   typeof v === "string" && (WINDOW_ACTIONS as readonly string[]).includes(v) ? (v as WindowAction) : null;
@@ -82,4 +82,53 @@ export function readAuthorizeUrl(v: unknown): string | null {
 export function readLocale(lang: unknown, strings: unknown): { lang: string; strings: Record<string, unknown> } | null {
   if (typeof lang !== "string" || !/^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8}){0,3}$/.test(lang)) return null;
   return { lang, strings: obj(strings) ?? {} };
+}
+
+// ── site-agent ──────────────────────────────────────────────────────────────
+
+/** A `<webview>`'s contents id. Which contents it is, and whether it is a site
+ *  on the page, is the shell's to check (siteAgent.ts). */
+export const readTabId = (v: unknown): number | null => (typeof v === "number" && Number.isSafeInteger(v) && v > 0 ? v : null);
+
+/** A grant id, as the shell made it (`crypto.randomUUID`). */
+export const readGrantId = (v: unknown): string | null => (typeof v === "string" && ID_RE.test(v) ? v : null);
+
+/** The agent the dialog names: a Mafold username (`owner:bot` for a bot). */
+export const readAgentName = (v: unknown): string | null => (typeof v === "string" && /^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,63}$/.test(v) ? v : null);
+
+/** A ref from a look (`e12`), or the words on a thing: one line, clipped. */
+export const readAgentRef = (v: unknown): string | null => {
+  const s = clip(v, 120).replace(/\s+/g, " ").trim();
+  return s ? s : null;
+};
+
+/** The most a page may type in one act. */
+export const MAX_AGENT_TEXT = 2000;
+const MAX_POINT = 100_000;
+
+export function readSiteAct(v: unknown): SiteAgentAct | null {
+  const o = obj(v);
+  if (!o) return null;
+  const keys = Object.keys(o);
+  if (keys.length !== 1) return null;
+  if ("click" in o) {
+    const p = obj(o.click);
+    const x = p?.x, y = p?.y;
+    if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+    if (x < 0 || y < 0 || x > MAX_POINT || y > MAX_POINT) return null;
+    return { click: { x: Math.round(x), y: Math.round(y) } };
+  }
+  if ("type" in o) return typeof o.type === "string" && o.type.length > 0 && o.type.length <= MAX_AGENT_TEXT ? { type: o.type } : null;
+  if ("key" in o) return typeof o.key === "string" && (SITE_AGENT_KEYS as readonly string[]).includes(o.key) ? { key: o.key as SiteAgentKey } : null;
+  if ("scroll" in o) return typeof o.scroll === "number" && Number.isFinite(o.scroll) ? { scroll: Math.max(-5000, Math.min(5000, Math.round(o.scroll))) } : null;
+  if ("goto" in o) {
+    if (typeof o.goto !== "string" || o.goto.length > 2048) return null;
+    try {
+      const u = new URL(o.goto);
+      return u.protocol === "https:" || u.protocol === "http:" ? { goto: u.toString() } : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }

@@ -96,6 +96,20 @@ export async function startOrigins(): Promise<Origins> {
 <script>addEventListener("message", (e) => { window.__said = e.data; });</script>`));
       return;
     }
+    // A site an agent uses (siteAgent.spec.ts): something to press, a field,
+    // a password field, and more page than fits.
+    if (req.url === "/agent-site") {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(html(`
+<style>button, input { display: block; width: 300px; height: 40px; margin: 8px }</style>
+<h1>Play with me</h1>
+<button id="press" onclick="window.__pressed = (window.__pressed || 0) + 1; this.dataset.trusted = String(event.isTrusted)">Press me</button>
+<input id="name" aria-label="Your name">
+<input id="secret" type="password" aria-label="Password" value="">
+<div style="height: 700px"></div>
+<button id="far">Far down</button>`));
+      return;
+    }
     // A site that says who it is (sitePage.spec.ts), with somewhere to go.
     if (req.url === "/titled" || req.url === "/next") {
       const pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";

@@ -14,7 +14,7 @@ import { notifyPermission, openNotifySettings, showNotification, testNotificatio
 import { originOf } from "./policy";
 import type { Shell } from "./shell";
 import { clearSiteData } from "./sites";
-import { readAppearance, readAuthorizeUrl, readChatChannel, readConvId, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
+import { readAgentName, readAgentRef, readAppearance, readAuthorizeUrl, readChatChannel, readConvId, readEventName, readGrantId, readLocale, readNotification, readSiteAct, readTabId, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
 import { readWindowCorners, saveWindowCorners } from "./windowCorners";
 import {
   IPC,
@@ -35,6 +35,9 @@ import {
   type OAuthResult,
   type RuntimeLoginResult,
   type RuntimeLoginStart,
+  type SiteAgentActResult,
+  type SiteAgentBox,
+  type SiteAgentLook,
 } from "../shared/desktopHost.generated";
 import type { DaemonManager } from "./daemon/manager";
 import { isChannel, isUsername } from "./daemon/model";
@@ -136,6 +139,51 @@ export function registerBridge(
   });
 
   handle<boolean>(IPC.siteDataClear, () => clearSiteData(), false);
+
+  // An agent on a site tab (siteAgent.ts): the person says yes in the shell's
+  // dialog; everything after that is checked against that grant.
+  const agents = shell.siteAgents;
+  if (agents) {
+    handle<string | null>(
+      IPC.siteAgentGrant,
+      (tab, agent) => {
+        const t = readTabId(tab);
+        const a = readAgentName(agent);
+        return t && a ? agents.grant(t, a) : null;
+      },
+      null,
+    );
+    on(IPC.siteAgentEnd, (_e, grant) => {
+      const g = readGrantId(grant);
+      if (g) agents.end(g);
+    });
+    handle<SiteAgentLook | null>(
+      IPC.siteAgentLook,
+      (grant, shot) => {
+        const g = readGrantId(grant);
+        return g ? agents.look(g, shot === true) : null;
+      },
+      null,
+    );
+    handle<SiteAgentBox | null>(
+      IPC.siteAgentLocate,
+      (grant, ref) => {
+        const g = readGrantId(grant);
+        const r = readAgentRef(ref);
+        return g && r ? agents.locate(g, r) : null;
+      },
+      null,
+    );
+    handle<SiteAgentActResult>(
+      IPC.siteAgentAct,
+      (grant, act) => {
+        const g = readGrantId(grant);
+        const a = readSiteAct(act);
+        return g && a ? agents.act(g, a) : { ok: false, error: "refused" };
+      },
+      { ok: false, error: "failed" },
+    );
+  }
 
   on(IPC.setLocale, (_e, lang, strings) => {
     const l = readLocale(lang, strings);

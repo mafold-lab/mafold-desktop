@@ -41,6 +41,11 @@ import {
   type OAuthResult,
   type RuntimeLoginResult,
   type RuntimeLoginStart,
+  type SiteAgentAct,
+  type SiteAgentActResult,
+  type SiteAgentBox,
+  type SiteAgentEvent,
+  type SiteAgentLook,
   type UnreadSummary,
   type WindowAction,
   type WindowLayout,
@@ -103,12 +108,34 @@ if (webOrigin && window.location.origin === webOrigin) {
     openChatWindow: (convId: string, dropped?: boolean, channel?: string) => ipcRenderer.send(IPC.openChatWindow, convId, dropped === true, channel),
     closeChatWindow: () => ipcRenderer.send(IPC.closeChatWindow),
     clearSiteData: (): Promise<boolean> => ipcRenderer.invoke(IPC.siteDataClear),
+    ...(caps.includes("site-agent")
+      ? {
+          siteAgent: {
+            grant: (tab: number, agent: string): Promise<string | null> => ipcRenderer.invoke(IPC.siteAgentGrant, tab, agent),
+            end: (grant: string) => ipcRenderer.send(IPC.siteAgentEnd, grant),
+            look: (grant: string, shot?: boolean): Promise<SiteAgentLook | null> => ipcRenderer.invoke(IPC.siteAgentLook, grant, shot === true),
+            locate: (grant: string, ref: string): Promise<SiteAgentBox | null> => ipcRenderer.invoke(IPC.siteAgentLocate, grant, ref),
+            act: (grant: string, act: SiteAgentAct): Promise<SiteAgentActResult> => ipcRenderer.invoke(IPC.siteAgentAct, grant, act),
+          },
+        }
+      : null),
     takeShare: (): Promise<HostShare | null> => ipcRenderer.invoke(IPC.shareTake),
     oauth: (authorizeUrl: string, state: string): Promise<OAuthResult> => ipcRenderer.invoke(IPC.oauth, authorizeUrl, state),
     setLocale: (lang: string, strings: Record<string, string>) => ipcRenderer.send(IPC.setLocale, lang, strings),
     setAppearance: (mode: Appearance) => ipcRenderer.send(IPC.setAppearance, mode),
     on: ((name: HostEventName, cb: (payload?: string) => void) => {
       if (name === "navigate" || name === "open-link" || name === "open-incognito-link") return subscribe(name, (p) => typeof p === "string" && cb(p));
+      if (name === "site-agent") {
+        return subscribe(name, (p) => {
+          if (typeof p !== "string") return;
+          try {
+            const e = JSON.parse(p) as { grant?: unknown; kind?: unknown };
+            if (typeof e.grant === "string" && (e.kind === "input" || e.kind === "ended")) (cb as unknown as (e: SiteAgentEvent) => void)({ grant: e.grant, kind: e.kind });
+          } catch {
+            /* a malformed frame is dropped */
+          }
+        });
+      }
       if (name === "command") return subscribe(name, (p) => typeof p === "string" && (cb as (c: HostCommand) => void)(p as HostCommand));
       if (name === "resume" || name === "share") return subscribe(name, () => (cb as () => void)());
       if (name === "daemon") {

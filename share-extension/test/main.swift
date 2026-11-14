@@ -103,5 +103,60 @@ do {
   check(!r.saved && r.manifest == nil, "empty: nothing saved")
 }
 
+// The iPhone's reader takes what the spool wrote, and the oldest first.
+do {
+  let inbox = root.appendingPathComponent(UUID().uuidString)
+  let keep = root.appendingPathComponent(UUID().uuidString)
+  func write(_ items: [NSExtensionItem]) {
+    var saved: Bool?
+    ShareSpool.save(items, into: inbox) { saved = $0 }
+    while saved == nil { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+  }
+  write([item([NSItemProvider(contentsOf: doc)!], text: "first")])
+  Thread.sleep(forTimeInterval: 1.1)
+  write([item([], text: "second")])
+  let one = ShareInboxReader.take(inbox: inbox, keep: keep)
+  check(one?["text"] as? String == "first", "reader: oldest first")
+  let row = (one?["files"] as? [[String: Any]])?.first
+  check(row?["name"] as? String == "report.pdf" && row?["type"] as? String == "application/pdf", "reader: file row")
+  let uri = (row?["uri"] as? String).flatMap(URL.init(string:))
+  check(uri.map { (try? Data(contentsOf: $0)) == Data("%PDF-1.4".utf8) } ?? false, "reader: file readable where it moved")
+  check(uri?.path.hasPrefix(keep.path) ?? false, "reader: moved out of the inbox")
+  check(ShareInboxReader.take(inbox: inbox, keep: keep)?["text"] as? String == "second", "reader: then the next")
+  check(ShareInboxReader.take(inbox: inbox, keep: keep) == nil, "reader: each once")
+}
+
+// A manifest can name only plain files in its own folder.
+do {
+  let inbox = root.appendingPathComponent(UUID().uuidString)
+  let keep = root.appendingPathComponent(UUID().uuidString)
+  let dir = inbox.appendingPathComponent("a")
+  try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+  try Data("ok".utf8).write(to: dir.appendingPathComponent("fine.txt"))
+  try fm.createSymbolicLink(at: dir.appendingPathComponent("link"), withDestinationURL: doc)
+  let manifest: [String: Any] = ["v": 1, "text": "", "files": [
+    ["name": "../../report.pdf", "mime": "application/pdf"],
+    ["name": "link", "mime": "application/pdf"],
+    ["name": "manifest.json", "mime": "application/json"],
+    ["name": "missing", "mime": "text/plain"],
+    ["name": "fine.txt", "mime": "text/plain"],
+  ]]
+  try JSONSerialization.data(withJSONObject: manifest).write(to: dir.appendingPathComponent("manifest.json"))
+  let got = ShareInboxReader.take(inbox: inbox, keep: keep)
+  check(((got?["files"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String } == ["fine.txt"], "reader: own plain files only")
+  check(got?["skipped"] as? Int == 4, "reader: the rest counted")
+}
+
+// A folder still being written stays; an abandoned one goes.
+do {
+  let inbox = root.appendingPathComponent(UUID().uuidString)
+  let keep = root.appendingPathComponent(UUID().uuidString)
+  try fm.createDirectory(at: inbox.appendingPathComponent("writing"), withIntermediateDirectories: true)
+  check(ShareInboxReader.take(inbox: inbox, keep: keep) == nil, "reader: nothing finished yet")
+  check(fm.fileExists(atPath: inbox.appendingPathComponent("writing").path), "reader: leaves a folder being written")
+  _ = ShareInboxReader.take(inbox: inbox, keep: keep, now: Date().addingTimeInterval(2 * 60 * 60))
+  check(!fm.fileExists(atPath: inbox.appendingPathComponent("writing").path), "reader: clears an abandoned one")
+}
+
 if failed > 0 { print("\(failed) failed"); exit(1) }
 print("all passed")

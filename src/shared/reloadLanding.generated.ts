@@ -155,6 +155,8 @@ export function landingOf(now: OpenNow): Landing {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** `@` and a username (an agent's carries its owner: `ops:helper`). */
 const HANDLE = /^@[a-z0-9_][a-z0-9_.:-]{0,63}$/i;
+/** `+` and an invite link's code (url-safe base64, case kept). */
+const INVITE = /^\+[A-Za-z0-9_-]{8,64}$/;
 
 /**
  * The place a URL hash names — as the web app reads it on load (mafold-web
@@ -163,8 +165,9 @@ const HANDLE = /^@[a-z0-9_][a-z0-9_.:-]{0,63}$/i;
  * shell keeps it across a restart into a new version (mafold-desktop
  * relaunch.ts): `#garden` and `#moments` (their longer links `#garden/…`
  * too), `#<conversation>`, `#<conversation>/<message>` (nothing past the
- * message is read). Anything else is no place: none, a markdown anchor, an
- * invite (`#join/…`, which the web app claims before it asks here), a query.
+ * message is read), a person's `#@name` and a group's `#+code` page.
+ * Anything else is no place: none, a markdown anchor, an invite (`#join/…`,
+ * which the web app claims before it asks here), a query.
  */
 export function landingFromHash(hash: string): Landing | null {
   const raw = hash.replace(/^#/, "").trim();
@@ -173,6 +176,9 @@ export function landingFromHash(hash: string): Landing | null {
   // `#@username`: the chat with that person, whether or not one exists yet
   // (dmPrivacy.ts `pendingDmId`) — what the public profile's Message links to.
   if (HANDLE.test(raw)) return { conv: raw.toLowerCase() };
+  // `#+code`: the page of the group behind that invite link, before I'm in it
+  // (joinPage.ts `joinPageId`) — Join on it; nothing is joined by the link.
+  if (INVITE.test(raw)) return { conv: raw };
   const [conv, msg] = raw.split("/", 2);
   if (!conv || !UUID.test(conv) || (msg && !UUID.test(msg))) return null;
   return msg ? { conv, msg } : { conv };

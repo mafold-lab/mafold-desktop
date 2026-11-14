@@ -31,6 +31,7 @@ import { enablePasskeys, guardAllContents, guardSession } from "./security";
 import { enableShareExtension } from "./shareExtension";
 import { Shell } from "./shell";
 import { guardSites } from "./sites";
+import { SiteAgents, siteAgentConfirm } from "./siteAgent";
 import { createTray, refreshTray, trayLabels } from "./tray";
 import { initUpdater } from "./updater";
 import { createMainWindow, saveWindowState } from "./window";
@@ -117,6 +118,12 @@ if (!app.requestSingleInstanceLock()) {
     guardAllContents(s);
     guardSession(s);
     guardSites(s);
+    // An agent the person lets use a site tab (cap `site-agent`). Its grants
+    // go with the page's listening: a page that reloaded draws no Stop.
+    s.siteAgents = new SiteAgents(s, siteAgentConfirm(s));
+    s.onUnsubscribe((name) => {
+      if (name === "site-agent") s.siteAgents?.endAll();
+    });
     const userData = app.getPath("userData");
     // The light / dark picked in the app last time, before there is a window:
     // its ground and the page's first frame open in it (appearance.ts).

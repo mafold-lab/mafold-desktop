@@ -70,6 +70,15 @@ const SEALED = [
   "setUserAgent",
 ] as const;
 
+/** The sealed methods as Electron made them, for the shell's own use: an agent
+ *  the person let use this tab (siteAgent.ts). Never handed to the page. */
+export function unsealed(contents: WebContents): Pick<WebContents, (typeof SEALED)[number]> {
+  const real = Object.getPrototypeOf(contents) as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const method of SEALED) out[method] = (real[method] as (...a: unknown[]) => unknown).bind(contents);
+  return out as unknown as Pick<WebContents, (typeof SEALED)[number]>;
+}
+
 function seal(contents: WebContents): void {
   const refused = () => Promise.reject(new Error("not for a site"));
   const own = contents as unknown as Record<string, unknown>;
@@ -97,10 +106,16 @@ function guardSite(contents: WebContents, shell: Shell): void {
   // In every frame of the site, cross-origin ones included: both of these come
   // before the frame gets the event.
   contents.on("before-mouse-event", (_e, mouse) => {
-    if (mouse.type === "mouseDown") shell.siteActs.saw(contents, Date.now());
+    if (mouse.type === "mouseDown") {
+      shell.siteActs.saw(contents, Date.now());
+      shell.siteAgents?.input(contents);
+    }
   });
   contents.on("before-input-event", (e, input) => {
-    if (input.type === "keyDown") shell.siteActs.saw(contents, Date.now());
+    if (input.type === "keyDown") {
+      shell.siteActs.saw(contents, Date.now());
+      shell.siteAgents?.input(contents);
+    }
     const key = siteShortcut(input, process.platform === "darwin");
     if (!key) return;
     e.preventDefault();

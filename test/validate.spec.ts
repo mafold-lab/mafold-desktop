@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { isHostCommand, readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread } from "../src/main/validate";
+import { isHostCommand, readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread, readSiteAct, readAgentName, readGrantId, readTabId, readAgentRef, MAX_AGENT_TEXT } from "../src/main/validate";
 
 const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
@@ -84,5 +84,47 @@ describe("strings snapshot", () => {
     for (const [lang, strings] of Object.entries(table)) {
       for (const k of used) expect(strings[k], `${lang} ${k}`).toBeTruthy();
     }
+  });
+});
+
+describe("site-agent payloads", () => {
+  it("takes one act of a known shape, and nothing else", () => {
+    expect(readSiteAct({ click: { x: 10.4, y: 20.6 } })).toEqual({ click: { x: 10, y: 21 } });
+    expect(readSiteAct({ type: "hello" })).toEqual({ type: "hello" });
+    expect(readSiteAct({ key: "Enter" })).toEqual({ key: "Enter" });
+    expect(readSiteAct({ scroll: 99_999 })).toEqual({ scroll: 5000 });
+    expect(readSiteAct({ goto: "https://example.com/a?b" })).toEqual({ goto: "https://example.com/a?b" });
+    for (const bad of [
+      null,
+      "click",
+      {},
+      { click: { x: -1, y: 2 } },
+      { click: { x: "1", y: 2 } },
+      { click: { x: 1, y: 2 }, type: "two at once" },
+      { type: "" },
+      { type: "x".repeat(MAX_AGENT_TEXT + 1) },
+      { key: "F12" },
+      { scroll: Number.NaN },
+      { goto: "javascript:alert(1)" },
+      { goto: "file:///etc/passwd" },
+      { goto: "not a url" },
+      { eval: "1" },
+    ]) {
+      expect(readSiteAct(bad), JSON.stringify(bad)).toBeNull();
+    }
+  });
+
+  it("names, grants, tabs and refs", () => {
+    expect(readAgentName("opsdu:claude-code")).toBe("opsdu:claude-code");
+    expect(readAgentName("Claude\nAllow?")).toBeNull();
+    expect(readAgentName("")).toBeNull();
+    expect(readGrantId("0b6f3f4e-6f39-4f43-a3a1-3e3f9f0d2a11")).toBe("0b6f3f4e-6f39-4f43-a3a1-3e3f9f0d2a11");
+    expect(readGrantId("../../x")).toBeNull();
+    expect(readTabId(12)).toBe(12);
+    expect(readTabId(0)).toBeNull();
+    expect(readTabId(1.5)).toBeNull();
+    expect(readAgentRef("  Sign \n in ")).toBe("Sign in");
+    expect(readAgentRef("   ")).toBeNull();
+    expect(readAgentRef("x".repeat(500))!.length).toBeLessThanOrEqual(120);
   });
 });

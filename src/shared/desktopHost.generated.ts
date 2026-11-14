@@ -108,6 +108,14 @@ export const HOST_CAPS = [
   // forgets it all when the last contents of that session goes, whoever closed
   // it: the page can't leave anything behind by reloading or dying.
   "site-incognito",
+  // `site-agent` — an agent uses one site tab: the shell asks the person in a
+  // dialog of its own (`siteAgent.grant`), then reads that tab (`look`, a
+  // picture by `shot`) and acts in it with real input (`act`), until the page
+  // ends the grant or the tab goes. Nothing in the page can do any of that to
+  // a site by itself (mafold-desktop sites.ts `SEALED`). Password fields are
+  // never typed into or read. `on("site-agent")` says the person did something
+  // in a granted tab, or that a grant ended.
+  "site-agent",
   // `chat-windows` — a conversation in a window of its own: `openChatWindow`
   // opens one (or brings it up). Such a window is the web app again with
   // `soloChat` set and only the caps of `CHAT_WINDOW_CAPS`; `closeChatWindow`
@@ -208,7 +216,70 @@ export interface OAuthResult {
   error?: string;
 }
 
-export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs" | "open-link" | "open-incognito-link";
+export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs" | "open-link" | "open-incognito-link" | "site-agent";
+
+/** One thing on a site an agent can act on (`site-agent` `look`): its ref for
+ *  `locate`, what it is, what it says, and where it is in the site's viewport
+ *  (CSS px). `off`: outside the viewport now; `locate` scrolls to it. */
+export interface SiteAgentItem {
+  ref: string;
+  role: string;
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  off?: boolean;
+}
+
+/** What an agent sees of its tab. `text`: the page's words, cut short.
+ *  `shot`: a JPEG of the viewport as a data: URL, only when asked for. */
+export interface SiteAgentLook {
+  url: string;
+  title: string;
+  w: number;
+  h: number;
+  items: SiteAgentItem[];
+  text: string;
+  shot?: string;
+}
+
+/** Where a thing is, after it was scrolled into view: site viewport CSS px. */
+export interface SiteAgentBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** One act, as real input. `click` is a point in the site's viewport; `type`
+ *  goes where the keyboard is (never a password field); `key` is one named key;
+ *  `scroll` moves by that many px down (negative: up) at the viewport's middle;
+ *  `goto` opens an address in the tab, by the tab's own rules. */
+export type SiteAgentAct =
+  | { click: { x: number; y: number } }
+  | { type: string }
+  | { key: SiteAgentKey }
+  | { scroll: number }
+  | { goto: string };
+
+export const SITE_AGENT_KEYS = ["Enter", "Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", "Space"] as const;
+export type SiteAgentKey = (typeof SITE_AGENT_KEYS)[number];
+
+export type SiteAgentActResult = { ok: true } | { ok: false; error: SiteAgentError };
+
+/** `ended`: no such grant (any more). `password`: the keyboard is in a password
+ *  field. `refused`: the shell's rules for the tab said no (`goto`). `failed`:
+ *  the site didn't take it (its page went, …). */
+export type SiteAgentError = "ended" | "password" | "refused" | "failed";
+
+/** `site-agent` events: the person did something in a granted tab (`input`;
+ *  the agent's own input doesn't count), or a grant ended (`ended`: the tab
+ *  closed, or the page let it go). */
+export interface SiteAgentEvent {
+  grant: string;
+  kind: "input" | "ended";
+}
 
 /** Where sites on the app page keep their logins (`site-tabs`). Never the
  *  page's own session: a site can't see the Mafold sign-in, and nothing a site
@@ -756,6 +827,8 @@ export interface MafoldHost {
   on(ev: "open-link", cb: (url: string) => void): () => void;
   /** `site-incognito`: a link an incognito tab opened: it stays incognito. */
   on(ev: "open-incognito-link", cb: (url: string) => void): () => void;
+  /** `site-agent`: see `SiteAgentEvent`. Grants end when nobody listens. */
+  on(ev: "site-agent", cb: (e: SiteAgentEvent) => void): () => void;
   /** The page is (true) / is no longer (false) drawing the window's lights;
    *  the shell hides / shows the system's own accordingly. */
   setWindowControls(drawn: boolean): void;
@@ -769,6 +842,21 @@ export interface MafoldHost {
   /** `site-tabs` only — check the cap; an older shell has no such method.
    *  Everything sites stored here, and what they were allowed. */
   clearSiteData?(): Promise<boolean>;
+  /** `site-agent` only — check the cap; an older shell has no such object.
+   *  `tab` is the site's `<webview>` (`getWebContentsId()`), `agent` the
+   *  agent's Mafold username: what the dialog names. */
+  siteAgent?: {
+    /** Ask the person, in the shell's own dialog. A grant id, or null (no). */
+    grant(tab: number, agent: string): Promise<string | null>;
+    /** Let it go (Stop). The tab stays, the person's again. */
+    end(grant: string): void;
+    /** null once the grant has ended. */
+    look(grant: string, shot?: boolean): Promise<SiteAgentLook | null>;
+    /** Bring a thing from the last `look` into view and say where it is now,
+     *  by its ref, or by what it says when `ref` isn't one. */
+    locate(grant: string, ref: string): Promise<SiteAgentBox | null>;
+    act(grant: string, act: SiteAgentAct): Promise<SiteAgentActResult>;
+  };
   autostart: {
     get(): Promise<boolean>;
     set(on: boolean): Promise<void>;
@@ -924,6 +1012,11 @@ export const IPC = {
   updateInstall: "mafold-host:update-install",
   updateCheck: "mafold-host:update-check",
   siteDataClear: "mafold-host:site-data-clear",
+  siteAgentGrant: "mafold-host:site-agent-grant",
+  siteAgentEnd: "mafold-host:site-agent-end",
+  siteAgentLook: "mafold-host:site-agent-look",
+  siteAgentLocate: "mafold-host:site-agent-locate",
+  siteAgentAct: "mafold-host:site-agent-act",
   openChatWindow: "mafold-host:open-chat-window",
   closeChatWindow: "mafold-host:close-chat-window",
   /** main → renderer */

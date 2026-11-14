@@ -7,6 +7,7 @@ import { appendFileSync } from "node:fs";
 import { session as electronSession, shell as electronShell, webContents as electronWebContents, type BaseWindow, type WebContents } from "electron";
 
 import type { ChatWindows } from "./chatWindows";
+import type { SiteAgents } from "./siteAgent";
 import type { ShellConfig } from "./config";
 import type { Strings } from "./i18n";
 import type { WindowFrame } from "./frame";
@@ -24,6 +25,8 @@ export class Shell {
   frame: WindowFrame | null = null;
   /** The conversations in windows of their own (chatWindows.ts). */
   chats: ChatWindows | null = null;
+  /** The tabs the person let an agent use (siteAgent.ts). */
+  siteAgents: SiteAgents | null = null;
   quitting = false;
   updateReady = false;
   /** The page stopped answering (window.ts): it cannot take the update's restart. */
