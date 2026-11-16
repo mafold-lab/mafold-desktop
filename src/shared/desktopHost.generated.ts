@@ -116,6 +116,11 @@ export const HOST_CAPS = [
   // never typed into or read. `on("site-agent")` says the person did something
   // in a granted tab, or that a grant ended.
   "site-agent",
+  // `site-freeze` — a site tab put away (the page of tabs minimized) goes
+  // still: `freezeSite(tab, true)` pauses what it is playing, mutes it and
+  // freezes the page (no timers, no scripts) until `freezeSite(tab, false)`,
+  // which plays again what it paused. Only the page's own site tabs.
+  "site-freeze",
   // `chat-windows` — a conversation in a window of its own: `openChatWindow`
   // opens one (or brings it up). Such a window is the web app again with
   // `soloChat` set and only the caps of `CHAT_WINDOW_CAPS`; `closeChatWindow`
@@ -857,6 +862,10 @@ export interface MafoldHost {
     locate(grant: string, ref: string): Promise<SiteAgentBox | null>;
     act(grant: string, act: SiteAgentAct): Promise<SiteAgentActResult>;
   };
+  /** `site-freeze` only — check the cap; an older shell has no such method.
+   *  `tab` is the site's `<webview>` (`getWebContentsId()`). False: not one of
+   *  the page's site tabs, or it is gone. */
+  freezeSite?(tab: number, frozen: boolean): Promise<boolean>;
   autostart: {
     get(): Promise<boolean>;
     set(on: boolean): Promise<void>;
@@ -1017,6 +1026,7 @@ export const IPC = {
   siteAgentLook: "mafold-host:site-agent-look",
   siteAgentLocate: "mafold-host:site-agent-locate",
   siteAgentAct: "mafold-host:site-agent-act",
+  siteFreeze: "mafold-host:site-freeze",
   openChatWindow: "mafold-host:open-chat-window",
   closeChatWindow: "mafold-host:close-chat-window",
   /** main → renderer */

@@ -6,7 +6,7 @@
 // 不另画。底色是 App 的(client-shared/appGround.ts,浅 / 深两档都给,跟着这会儿的
 // 深浅色走:那层页面的 prefers-color-scheme 就是壳的 nativeTheme)。正中的图是
 // client-shared/loadingIcon.ts 那份字节,内嵌成 data URI:这一层不许加载任何远程地址,
-// 网页那张 /mafold-boot-v1.jpg 是网页源上的相对地址,在这里取不到也不该取。
+// 网页那张 /mafold-boot-v2.jpg 是网页源上的相对地址,在这里取不到也不该取。
 //
 // 什么时候撤:主窗口的文档是网页源上的、DOM 好了(dom-ready),再等一帧
 // (COVER_HANDOFF_MS)让网页自己那张静止帧先画上(网页挂它的话:登着、bootCurtain 开着

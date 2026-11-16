@@ -28,14 +28,19 @@ final class ShareViewController: UIViewController {
 
   /// `NSExtensionContext.open` is refused to share extensions. The process's
   /// UIApplication is still in the responder chain, which is the one way to the
-  /// app, and why this target sets APPLICATION_EXTENSION_API_ONLY = NO. If it
-  /// stops working the share waits in the inbox for the next time Mafold opens.
+  /// app. Its `open` is marked unavailable to extensions, and an extension must
+  /// build with APPLICATION_EXTENSION_API_ONLY = YES (Xcode refuses to archive
+  /// it otherwise, app@1.1.16), so it is called by selector. If it stops
+  /// working the share waits in the inbox for the next time Mafold opens.
   private func openApp() {
     guard let url = URL(string: "mafold://share") else { return }
+    let selector = NSSelectorFromString("openURL:options:completionHandler:")
+    typealias Open = @convention(c) (AnyObject, Selector, NSURL, NSDictionary, (@convention(block) (Bool) -> Void)?) -> Void
     var responder: UIResponder? = self
     while let current = responder {
-      if let app = current as? UIApplication {
-        app.open(url, options: [:], completionHandler: nil)
+      if current is UIApplication, current.responds(to: selector) {
+        let open = unsafeBitCast(current.method(for: selector), to: Open.self)
+        open(current, selector, url as NSURL, NSDictionary(), nil)
         return
       }
       responder = current.next

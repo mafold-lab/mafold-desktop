@@ -90,6 +90,12 @@ export function readLocale(lang: unknown, strings: unknown): { lang: string; str
  *  on the page, is the shell's to check (siteAgent.ts). */
 export const readTabId = (v: unknown): number | null => (typeof v === "number" && Number.isSafeInteger(v) && v > 0 ? v : null);
 
+/** `freezeSite(tab, frozen)`: a tab id and a yes or no, nothing else. */
+export const readSiteFreeze = (tab: unknown, frozen: unknown): { tab: number; frozen: boolean } | null => {
+  const t = readTabId(tab);
+  return t && typeof frozen === "boolean" ? { tab: t, frozen } : null;
+};
+
 /** A grant id, as the shell made it (`crypto.randomUUID`). */
 export const readGrantId = (v: unknown): string | null => (typeof v === "string" && ID_RE.test(v) ? v : null);
 

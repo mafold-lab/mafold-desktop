@@ -5,7 +5,7 @@
 //
 // 画的必须就是网页那一张:都从 client-shared/loadingFrame.ts 的生成副本出,
 // 正中的图标是 client-shared/loadingIcon.ts 那份字节(这一层不许加载任何远程
-// 地址,所以图是内嵌的 data URI,不是网页用的 /mafold-boot-v1.jpg)。
+// 地址,所以图是内嵌的 data URI,不是网页用的 /mafold-boot-v2.jpg)。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

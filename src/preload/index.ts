@@ -119,6 +119,9 @@ if (webOrigin && window.location.origin === webOrigin) {
           },
         }
       : null),
+    ...(caps.includes("site-freeze")
+      ? { freezeSite: (tab: number, frozen: boolean): Promise<boolean> => ipcRenderer.invoke(IPC.siteFreeze, tab, frozen) }
+      : null),
     takeShare: (): Promise<HostShare | null> => ipcRenderer.invoke(IPC.shareTake),
     oauth: (authorizeUrl: string, state: string): Promise<OAuthResult> => ipcRenderer.invoke(IPC.oauth, authorizeUrl, state),
     setLocale: (lang: string, strings: Record<string, string>) => ipcRenderer.send(IPC.setLocale, lang, strings),

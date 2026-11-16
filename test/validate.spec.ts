@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { isHostCommand, readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread, readSiteAct, readAgentName, readGrantId, readTabId, readAgentRef, MAX_AGENT_TEXT } from "../src/main/validate";
+import { isHostCommand, readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread, readSiteAct, readAgentName, readGrantId, readTabId, readAgentRef, readSiteFreeze, MAX_AGENT_TEXT } from "../src/main/validate";
 
 const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
@@ -126,5 +126,26 @@ describe("site-agent payloads", () => {
     expect(readAgentRef("  Sign \n in ")).toBe("Sign in");
     expect(readAgentRef("   ")).toBeNull();
     expect(readAgentRef("x".repeat(500))!.length).toBeLessThanOrEqual(120);
+  });
+});
+
+describe("site-freeze payloads", () => {
+  it("a tab and a yes or no, nothing else", () => {
+    expect(readSiteFreeze(12, true)).toEqual({ tab: 12, frozen: true });
+    expect(readSiteFreeze(12, false)).toEqual({ tab: 12, frozen: false });
+    for (const [tab, frozen] of [
+      [12, "true"],
+      [12, 1],
+      [12, undefined],
+      [12, null],
+      [0, true],
+      [-3, true],
+      [1.5, false],
+      ["12", true],
+      [Number.MAX_SAFE_INTEGER + 2, true],
+      [null, false],
+    ] as const) {
+      expect(readSiteFreeze(tab, frozen), `${String(tab)} ${String(frozen)}`).toBeNull();
+    }
   });
 });

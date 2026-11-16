@@ -7,14 +7,14 @@
 // the tab must be a site on the main window's page, the grant must be live,
 // and the keyboard must not be in a password field.
 
-import { dialog, session as electronSession, webContents as electronWebContents, type WebContents } from "electron";
+import { dialog, type WebContents } from "electron";
 
 import { RateLimit } from "./limits";
 import { log } from "./log";
 import { decideSiteNavigation, originOf } from "./policy";
 import type { Shell } from "./shell";
-import { unsealed } from "./sites";
-import { SITE_INCOGNITO_PARTITION, SITE_PARTITION, type SiteAgentAct, type SiteAgentActResult, type SiteAgentBox, type SiteAgentKey, type SiteAgentLook } from "../shared/desktopHost.generated";
+import { pageSite, unsealed } from "./sites";
+import type { SiteAgentAct, SiteAgentActResult, SiteAgentBox, SiteAgentKey, SiteAgentLook } from "../shared/desktopHost.generated";
 
 /** The scripts run in a world of their own: the site's scripts can't see the
  *  refs, or replace what the scripts call. */
@@ -109,16 +109,6 @@ export class SiteAgents {
     private confirm: (agent: string, site: string) => Promise<boolean>,
   ) {}
 
-  /** A site on a tab of the main window's page, or nothing. */
-  private site(tab: number): WebContents | null {
-    const c = electronWebContents.fromId(tab);
-    if (!c || c.isDestroyed() || c.getType() !== "webview") return null;
-    const page = this.shell.page;
-    if (!page || c.hostWebContents !== page) return null;
-    const ours = [SITE_PARTITION, SITE_INCOGNITO_PARTITION].some((p) => c.session === electronSession.fromPartition(p));
-    return ours ? c : null;
-  }
-
   private live(id: string): Grant | null {
     const g = this.grants.get(id);
     if (!g) return null;
@@ -130,7 +120,7 @@ export class SiteAgents {
   }
 
   async grant(tab: number, agent: string): Promise<string | null> {
-    const contents = this.site(tab);
+    const contents = pageSite(this.shell, tab);
     if (!contents) return null;
     // One question at a time, and not one after another: a card can ask too.
     if (this.asking || !this.asks.allow("grant", Date.now())) return null;

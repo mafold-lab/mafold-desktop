@@ -13,8 +13,9 @@ import { log } from "./log";
 import { notifyPermission, openNotifySettings, showNotification, testNotification } from "./notify";
 import { originOf } from "./policy";
 import type { Shell } from "./shell";
+import { SiteFreezes } from "./siteFreeze";
 import { clearSiteData } from "./sites";
-import { readAgentName, readAgentRef, readAppearance, readAuthorizeUrl, readChatChannel, readConvId, readEventName, readGrantId, readLocale, readNotification, readSiteAct, readTabId, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
+import { readAgentName, readAgentRef, readAppearance, readAuthorizeUrl, readChatChannel, readConvId, readEventName, readGrantId, readLocale, readNotification, readSiteAct, readSiteFreeze, readTabId, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
 import { readWindowCorners, saveWindowCorners } from "./windowCorners";
 import {
   IPC,
@@ -184,6 +185,18 @@ export function registerBridge(
       { ok: false, error: "failed" },
     );
   }
+
+  // A site tab put away goes still, and back (siteFreeze.ts): only the
+  // page's own site tabs, checked like an agent's.
+  const freezes = new SiteFreezes(shell);
+  handle<boolean>(
+    IPC.siteFreeze,
+    (tab, frozen) => {
+      const f = readSiteFreeze(tab, frozen);
+      return f ? freezes.set(f.tab, f.frozen) : false;
+    },
+    false,
+  );
 
   on(IPC.setLocale, (_e, lang, strings) => {
     const l = readLocale(lang, strings);

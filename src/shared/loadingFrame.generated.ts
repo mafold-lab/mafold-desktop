@@ -37,7 +37,7 @@ export const LOADING_FRAME = {
      *  264px JPEG(size 的 3 倍),12KB。换图就换名字:它是永久缓存的
      *  (mafold-web/public/_headers)。手机画的是同一张图的同一份字节,内嵌成
      *  data URI(client-shared/loadingIcon.ts —— OTA 包里新加的图片文件是空白的)。 */
-    src: "/mafold-boot-v1.jpg",
+    src: "/mafold-boot-v2.jpg",
     px: 264,
   },
   /** 安卓 12 起系统自己先出一张启动屏:底色上正中一颗图标,系统一定把它裁成

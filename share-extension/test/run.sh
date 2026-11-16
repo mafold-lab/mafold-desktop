@@ -9,7 +9,12 @@ swiftc -swift-version 5 -module-name SpoolTest \
 "$out/spool-test"
 
 # The iPhone extension and reader compile against the iOS SDK too. Linking waits
-# for the app's own build; the app's Xcode project lives in mafold-rn.
-swiftc -typecheck -swift-version 5 -parse-as-library -module-name MafoldShare \
-  -target arm64-apple-ios15.1-simulator -sdk "$(xcrun --show-sdk-path --sdk iphonesimulator)" \
-  "$here/../ShareSpool.swift" "$here/../ShareInboxReader.swift" "$here/../ios/ShareViewController.swift"
+# for the app's own build; the app's Xcode project lives in mafold-rn. The
+# extension with -application-extension, as its target builds it.
+ios_sdk="$(xcrun --show-sdk-path --sdk iphonesimulator)"
+swiftc -typecheck -swift-version 5 -parse-as-library -application-extension -module-name MafoldShare \
+  -target arm64-apple-ios15.1-simulator -sdk "$ios_sdk" \
+  "$here/../ShareSpool.swift" "$here/../ios/ShareViewController.swift"
+swiftc -typecheck -swift-version 5 -parse-as-library -module-name MafoldShareReader \
+  -target arm64-apple-ios15.1-simulator -sdk "$ios_sdk" \
+  "$here/../ShareSpool.swift" "$here/../ShareInboxReader.swift"

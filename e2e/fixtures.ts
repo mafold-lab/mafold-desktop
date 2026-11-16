@@ -110,6 +110,37 @@ export async function startOrigins(): Promise<Origins> {
 <button id="far">Far down</button>`));
       return;
     }
+    // A site that keeps going (siteFreeze.spec.ts): a timer that notes the
+    // longest it went without a tick, and a video playing what the timer draws.
+    if (req.url === "/busy-site") {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(html(`
+<h1>Busy</h1>
+<canvas id="c" width="32" height="32"></canvas>
+<video id="v" muted playsinline></video>
+<script>
+  window.__ticks = 0; window.__last = Date.now(); window.__maxGap = 0; window.__pauses = 0; window.__events = [];
+  const t0 = Date.now();
+  for (const [on, name] of [[document, "freeze"], [document, "resume"], [document, "visibilitychange"], [window, "pagehide"], [window, "pageshow"]]) {
+    on.addEventListener(name, () => window.__events.push(name + "@" + (Date.now() - t0) + ":" + document.visibilityState));
+  }
+  const pen = document.getElementById("c").getContext("2d");
+  setInterval(() => {
+    const now = Date.now();
+    window.__maxGap = Math.max(window.__maxGap, now - window.__last);
+    window.__last = now;
+    window.__ticks += 1;
+    pen.fillStyle = window.__ticks % 2 ? "#000" : "#fff";
+    pen.fillRect(0, 0, 32, 32);
+  }, 50);
+  const v = document.getElementById("v");
+  v.muted = true;
+  v.addEventListener("pause", () => { window.__pauses += 1; });
+  v.srcObject = document.getElementById("c").captureStream(20);
+  v.play().catch((e) => { window.__playError = String(e); });
+</script>`));
+      return;
+    }
     // A site that says who it is (sitePage.spec.ts), with somewhere to go.
     if (req.url === "/titled" || req.url === "/next") {
       const pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";

@@ -4,7 +4,7 @@
 // themselves, so nothing a site runs can talk its way past it. Who gets a
 // `<webview>` at all, and what opens a tab, is security.ts.
 
-import { app, dialog, session as electronSession, type Session, type WebContents } from "electron";
+import { app, dialog, session as electronSession, webContents as electronWebContents, type Session, type WebContents } from "electron";
 import { join } from "node:path";
 
 import { log, redact } from "./log";
@@ -69,6 +69,18 @@ const SEALED = [
   "findInPage",
   "setUserAgent",
 ] as const;
+
+/** A site on a tab of the main window's page, or nothing. `tab` is the page's
+ *  word (a `<webview>`'s `getWebContentsId()`), so it is checked: a guest of
+ *  the page itself, in one of the sites' sessions (siteAgent.ts, siteFreeze.ts). */
+export function pageSite(shell: Shell, tab: number): WebContents | null {
+  const c = electronWebContents.fromId(tab);
+  if (!c || c.isDestroyed() || c.getType() !== "webview") return null;
+  const page = shell.page;
+  if (!page || page.isDestroyed() || c.hostWebContents !== page) return null;
+  const ours = [SITE_PARTITION, SITE_INCOGNITO_PARTITION].some((p) => c.session === electronSession.fromPartition(p));
+  return ours ? c : null;
+}
 
 /** The sealed methods as Electron made them, for the shell's own use: an agent
  *  the person let use this tab (siteAgent.ts). Never handed to the page. */
