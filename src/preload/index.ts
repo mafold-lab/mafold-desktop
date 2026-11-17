@@ -18,6 +18,9 @@ import {
   type AdoptResult,
   type Appearance,
   type BotRestartResult,
+  type BrowserImportResult,
+  type BrowserProfile,
+  type BrowserSitesResult,
   type CliInstallResult,
   type CliRollbackCheck,
   type CliUpdateResult,
@@ -39,6 +42,7 @@ import {
   type MafoldHost,
   type NotifyPermission,
   type OAuthResult,
+  type ProfileLink,
   type RuntimeLoginResult,
   type RuntimeLoginStart,
   type SiteAgentAct,
@@ -122,12 +126,35 @@ if (webOrigin && window.location.origin === webOrigin) {
     ...(caps.includes("site-freeze")
       ? { freezeSite: (tab: number, frozen: boolean): Promise<boolean> => ipcRenderer.invoke(IPC.siteFreeze, tab, frozen) }
       : null),
+    ...(caps.includes("browser-profiles")
+      ? {
+          browsers: {
+            list: (): Promise<BrowserProfile[]> => ipcRenderer.invoke(IPC.browsersList),
+            sites: (id: string): Promise<BrowserSitesResult> => ipcRenderer.invoke(IPC.browsersSites, id),
+            import: (id: string, sites?: string[]): Promise<BrowserImportResult> =>
+              sites === undefined ? ipcRenderer.invoke(IPC.browsersImport, id) : ipcRenderer.invoke(IPC.browsersImport, id, sites),
+            forget: (id: string): Promise<boolean> => ipcRenderer.invoke(IPC.browsersForget, id),
+            openFullDiskAccess: () => ipcRenderer.send(IPC.browsersFullDiskAccess),
+          },
+        }
+      : null),
     takeShare: (): Promise<HostShare | null> => ipcRenderer.invoke(IPC.shareTake),
     oauth: (authorizeUrl: string, state: string): Promise<OAuthResult> => ipcRenderer.invoke(IPC.oauth, authorizeUrl, state),
     setLocale: (lang: string, strings: Record<string, string>) => ipcRenderer.send(IPC.setLocale, lang, strings),
     setAppearance: (mode: Appearance) => ipcRenderer.send(IPC.setAppearance, mode),
     on: ((name: HostEventName, cb: (payload?: string) => void) => {
       if (name === "navigate" || name === "open-link" || name === "open-incognito-link") return subscribe(name, (p) => typeof p === "string" && cb(p));
+      if (name === "open-profile-link") {
+        return subscribe(name, (p) => {
+          if (typeof p !== "string") return;
+          try {
+            const l = JSON.parse(p) as { profile?: unknown; url?: unknown };
+            if (typeof l.profile === "string" && typeof l.url === "string") (cb as unknown as (l: ProfileLink) => void)({ profile: l.profile, url: l.url });
+          } catch {
+            /* a malformed frame is dropped */
+          }
+        });
+      }
       if (name === "site-agent") {
         return subscribe(name, (p) => {
           if (typeof p !== "string") return;

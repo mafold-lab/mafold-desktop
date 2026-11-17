@@ -15,7 +15,7 @@ import {
   siteShortcut,
   siteUserAgent,
 } from "../src/main/policy";
-import { SITE_INCOGNITO_PARTITION, SITE_PARTITION } from "../src/shared/desktopHost.generated";
+import { PROFILE_PARTITION_PREFIX, profilePartition, SITE_INCOGNITO_PARTITION, SITE_PARTITION } from "../src/shared/desktopHost.generated";
 
 describe("shellUserAgent", () => {
   it("drops Electron's and the app's tokens and names the desktop app", () => {
@@ -141,6 +141,27 @@ describe("a site on a tab", () => {
     expect(mayAttachSite("https://mafold.com/app", { ...ok, partition: undefined }, o)).toBe(false);
     expect(mayAttachSite("https://mafold.com/app", { ...ok, src: "file:///etc/passwd" }, o)).toBe(false);
     expect(mayAttachSite("https://mafold.com/app", { ...ok, src: undefined }, o)).toBe(false);
+  });
+
+  it("stands in a browser profile's partition only when that profile was brought in", () => {
+    const work = profilePartition("chrome:Profile 1");
+    expect(work).toBe("persist:mafold-profile-chrome-profile-1");
+    const imported = (p: string) => p === work;
+    const tab = { partition: work, src: "https://github.com/" };
+    expect(mayAttachSite("https://mafold.com/app", tab, o, imported)).toBe(true);
+    // Without being told which are, none is.
+    expect(mayAttachSite("https://mafold.com/app", tab, o)).toBe(false);
+    // Another profile's, never brought in; the bare prefix; a partition that
+    // only looks like one.
+    expect(mayAttachSite("https://mafold.com/app", { ...tab, partition: profilePartition("chrome:Profile 2") }, o, imported)).toBe(false);
+    expect(mayAttachSite("https://mafold.com/app", { ...tab, partition: PROFILE_PARTITION_PREFIX }, o, () => true)).toBe(false);
+    expect(mayAttachSite("https://mafold.com/app", { ...tab, partition: "mafold-profile-chrome-profile-1" }, o, () => true)).toBe(false);
+    expect(mayAttachSite("https://mafold.com/app", { ...tab, partition: "persist:mafold" }, o, () => true)).toBe(false);
+    // The rest of the rule holds in it: our page, the web.
+    expect(mayAttachSite("https://evil.example/", tab, o, imported)).toBe(false);
+    expect(mayAttachSite("https://mafold.com/app", { ...tab, src: "file:///etc/passwd" }, o, imported)).toBe(false);
+    // The sites' own partitions don't depend on it.
+    expect(mayAttachSite("https://mafold.com/app", { ...tab, partition: SITE_PARTITION }, o, () => false)).toBe(true);
   });
 
   it("gets nothing of the shell's, whatever the tag asked for", () => {

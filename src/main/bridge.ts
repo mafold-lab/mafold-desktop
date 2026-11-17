@@ -15,13 +15,16 @@ import { originOf } from "./policy";
 import type { Shell } from "./shell";
 import { SiteFreezes } from "./siteFreeze";
 import { clearSiteData } from "./sites";
-import { readAgentName, readAgentRef, readAppearance, readAuthorizeUrl, readChatChannel, readConvId, readEventName, readGrantId, readLocale, readNotification, readSiteAct, readSiteFreeze, readTabId, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
+import { readAgentName, readAgentRef, readAppearance, readAuthorizeUrl, readChatChannel, readConvId, readEventName, readGrantId, readImportSites, readLocale, readNotification, readProfileId, readSiteAct, readSiteFreeze, readTabId, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
 import { readWindowCorners, saveWindowCorners } from "./windowCorners";
 import {
   IPC,
   type AdoptCheck,
   type AdoptResult,
   type BotRestartResult,
+  type BrowserImportResult,
+  type BrowserProfile,
+  type BrowserSitesResult,
   type CliInstallResult,
   type CliRollbackCheck,
   type CliUpdateResult,
@@ -197,6 +200,41 @@ export function registerBridge(
     },
     false,
   );
+
+  // The person's Chrome and Safari logins (browserProfiles/; macOS, where the
+  // cap is offered). The page names a profile by an id `list` made and, for
+  // an import, the sites; the Keychain and Full Disk Access ask the person in
+  // the system's own words, never the page's.
+  const browsers = shell.browserProfiles;
+  if (os === "macos" && browsers) {
+    handle<BrowserProfile[]>(IPC.browsersList, () => browsers.list(), []);
+    handle<BrowserSitesResult>(
+      IPC.browsersSites,
+      (id) => {
+        const p = readProfileId(id);
+        return p ? browsers.sites(p) : { ok: false, error: "failed", detail: "refused" };
+      },
+      { ok: false, error: "failed" },
+    );
+    handle<BrowserImportResult>(
+      IPC.browsersImport,
+      (id, sites) => {
+        const p = readProfileId(id);
+        const s = readImportSites(sites);
+        return p && s ? browsers.import(p, s.sites) : { ok: false, error: "failed", detail: "refused" };
+      },
+      { ok: false, error: "failed" },
+    );
+    handle<boolean>(
+      IPC.browsersForget,
+      (id) => {
+        const p = readProfileId(id);
+        return p ? browsers.forget(p) : false;
+      },
+      false,
+    );
+    on(IPC.browsersFullDiskAccess, () => browsers.openFullDiskAccess());
+  }
 
   on(IPC.setLocale, (_e, lang, strings) => {
     const l = readLocale(lang, strings);

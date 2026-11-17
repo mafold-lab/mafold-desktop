@@ -13,6 +13,7 @@ import { app, dialog, Menu, nativeTheme, powerMonitor } from "electron";
 import { readSavedAppearance } from "./appearance";
 import { launchedAtLogin, makeAutostart } from "./autostart";
 import { registerBridge } from "./bridge";
+import { BrowserProfiles } from "./browserProfiles";
 import { ChatWindows } from "./chatWindows";
 import { APP_ID, resolveConfig } from "./config";
 import { attachContextMenu } from "./contextMenu";
@@ -118,6 +119,10 @@ if (!app.requestSingleInstanceLock()) {
     guardAllContents(s);
     guardSession(s);
     guardSites(s);
+    // The Mac's Chrome and Safari logins (cap `browser-profiles`): the
+    // sessions of those brought in before are guarded here, before the page
+    // can show one.
+    if (os === "macos") s.browserProfiles = new BrowserProfiles(s);
     // An agent the person lets use a site tab (cap `site-agent`). Its grants
     // go with the page's listening: a page that reloaded draws no Stop.
     s.siteAgents = new SiteAgents(s, siteAgentConfirm(s));

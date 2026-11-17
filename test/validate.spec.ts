@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { isHostCommand, readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread, readSiteAct, readAgentName, readGrantId, readTabId, readAgentRef, readSiteFreeze, MAX_AGENT_TEXT } from "../src/main/validate";
+import { isHostCommand, readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread, readSiteAct, readAgentName, readGrantId, readTabId, readAgentRef, readSiteFreeze, MAX_AGENT_TEXT, readProfileId, readImportSites, MAX_IMPORT_SITES } from "../src/main/validate";
 
 const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
@@ -55,6 +55,7 @@ describe("bridge payloads", () => {
     expect(readEventName("notify-permission")).toBe("notify-permission");
     // Without it a page's subscription is dropped silently (bridge.ts) and it never hears an update.
     expect(readEventName("update")).toBe("update");
+    expect(readEventName("open-profile-link")).toBe("open-profile-link");
     expect(readEventName("eval")).toBeNull();
     const actions = ["close", "minimize", "zoom", "fullscreen", "fill", "center", "tile-left", "tile-right"];
     expect(actions.map(readWindowAction)).toEqual(actions);
@@ -147,5 +148,29 @@ describe("site-freeze payloads", () => {
     ] as const) {
       expect(readSiteFreeze(tab, frozen), `${String(tab)} ${String(frozen)}`).toBeNull();
     }
+  });
+});
+
+describe("browser-profiles", () => {
+  it("takes a profile id only in the shapes list makes", () => {
+    for (const id of ["chrome:Default", "chrome:Profile 1", "chrome:Profile 42", "safari:default", "safari:0A1B2C3D-0000-4000-8000-000000000001"]) {
+      expect(readProfileId(id), id).toBe(id);
+    }
+    for (const id of ["chrome:Guest Profile", "chrome:Profile 0", "chrome:../../etc", "chrome:Profile 1/../x", "safari:../Cookies", "firefox:default", "chrome:", "", 3, null, undefined]) {
+      expect(readProfileId(id), String(id)).toBeNull();
+    }
+  });
+
+  it("takes every site, or a bounded list of site names", () => {
+    expect(readImportSites(undefined)).toEqual({});
+    expect(readImportSites(["GitHub.com", "github.com", "bbc.co.uk"])).toEqual({ sites: ["github.com", "bbc.co.uk"] });
+    expect(readImportSites([])).toBeNull();
+    expect(readImportSites(null)).toBeNull();
+    expect(readImportSites("github.com")).toBeNull();
+    expect(readImportSites(["github.com", 1])).toBeNull();
+    expect(readImportSites(["https://github.com"])).toBeNull();
+    expect(readImportSites(["a b.com"])).toBeNull();
+    expect(readImportSites(["x".repeat(254)])).toBeNull();
+    expect(readImportSites(Array.from({ length: MAX_IMPORT_SITES + 1 }, (_v, i) => `s${i}.com`))).toBeNull();
   });
 });

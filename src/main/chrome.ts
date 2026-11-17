@@ -37,8 +37,10 @@ export const TITLE_BAR = { height: 32, lights: { x: 8, y: 8 } } as const;
 /** What this shell offers on this OS: drawing the window's own lights — and
  *  the green light's arranging, the title bar that takes over from them in the
  *  phone layout, and the window's own corners — is a macOS thing (Windows keeps
- *  its native frame), and so is the share extension. */
-const MAC_ONLY: readonly HostCap[] = ["window-controls", "window-arrange", "window-titlebar", "window-corners", "share-inbox"];
+ *  its native frame), and so are the share extension and bringing in the
+ *  logins of the Mac's Chrome and Safari (browserProfiles/: the Keychain, and
+ *  where those browsers keep their files there). */
+const MAC_ONLY: readonly HostCap[] = ["window-controls", "window-arrange", "window-titlebar", "window-corners", "share-inbox", "browser-profiles"];
 export const capsFor = (os: Os): HostCap[] => HOST_CAPS.filter((c) => !MAC_ONLY.includes(c) || os === "macos");
 
 export interface Point {

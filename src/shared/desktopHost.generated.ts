@@ -121,6 +121,16 @@ export const HOST_CAPS = [
   // freezes the page (no timers, no scripts) until `freezeSite(tab, false)`,
   // which plays again what it paused. Only the page's own site tabs.
   "site-freeze",
+  // `browser-profiles` (macOS) — the logins of the person's Chrome and Safari
+  // profiles, brought into Mafold's browser (Settings ▸ Connections ▸ Browsers,
+  // flag `browserProfiles`). `browsers.list` finds the profiles on this
+  // computer; `browsers.import` copies one's cookies, as they are now, into a
+  // session of its own (`profilePartition`), asking the Keychain once for
+  // Chrome and needing Full Disk Access for Safari. Nothing leaves the
+  // computer. A site tab in that session (a `<webview>` with its partition)
+  // is signed in where the profile was; what such a tab opens comes back on
+  // `on("open-profile-link")` and stays in the profile.
+  "browser-profiles",
   // `chat-windows` — a conversation in a window of its own: `openChatWindow`
   // opens one (or brings it up). Such a window is the web app again with
   // `soloChat` set and only the caps of `CHAT_WINDOW_CAPS`; `closeChatWindow`
@@ -221,7 +231,7 @@ export interface OAuthResult {
   error?: string;
 }
 
-export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs" | "open-link" | "open-incognito-link" | "site-agent";
+export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs" | "open-link" | "open-incognito-link" | "open-profile-link" | "site-agent";
 
 /** One thing on a site an agent can act on (`site-agent` `look`): its ref for
  *  `locate`, what it is, what it says, and where it is in the site's viewport
@@ -294,6 +304,61 @@ export const SITE_PARTITION = "persist:mafold-sites";
 /** Where incognito tabs keep theirs (`site-incognito`). No `persist:`: Electron
  *  holds this session in memory, so nothing of it reaches the disk. */
 export const SITE_INCOGNITO_PARTITION = "mafold-sites-incognito";
+
+/** A browser whose profiles can be brought in (`browser-profiles`). */
+export type BrowserKind = "chrome" | "safari";
+export const BROWSER_KINDS: readonly BrowserKind[] = ["chrome", "safari"];
+
+/** A profile of a browser on this computer (`browsers.list`). */
+export interface BrowserProfile {
+  /** Stable on this computer: `chrome:Profile 1`, `safari:default`. */
+  id: string;
+  browser: BrowserKind;
+  /** What the browser calls it ("Work", "Person 1"). */
+  name: string;
+  /** The account the browser is signed in with, when it says. */
+  email?: string;
+  /** This computer's name ("MacBook-Pro-4"), for the connection's label. */
+  machine: string;
+  /** Sites it holds logins for, as `list` read them; null when they can't be
+   *  read yet (Safari without Full Disk Access). */
+  sites: number | null;
+  /** When its logins were last brought in (unix seconds); absent = never. */
+  imported_at?: number;
+  /** How many sites came in then. */
+  imported_sites?: number;
+}
+
+/** A site a profile holds logins for (`browsers.sites`): its registrable
+ *  domain ("github.com") and how many cookies it has. */
+export interface BrowserSite {
+  site: string;
+  cookies: number;
+}
+
+/** Why a profile couldn't be read: the Keychain said no (Chrome), Mafold has
+ *  no Full Disk Access (Safari), the profile is gone, another import of it
+ *  is running, or anything else (`detail`, for the log). */
+export type BrowserError = "keychain" | "full-disk-access" | "gone" | "busy" | "failed";
+
+export type BrowserImportResult =
+  | { ok: true; sites: number; cookies: number; at: number }
+  | { ok: false; error: BrowserError; detail?: string };
+
+export type BrowserSitesResult = { ok: true; sites: BrowserSite[] } | { ok: false; error: BrowserError; detail?: string };
+
+/** The session a profile's logins live in: one per profile, on disk, never
+ *  the sites' own (`SITE_PARTITION`) nor another profile's. */
+export const PROFILE_PARTITION_PREFIX = "persist:mafold-profile-";
+export function profilePartition(id: string): string {
+  return PROFILE_PARTITION_PREFIX + id.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/** What `open-profile-link` carries: the link, and the profile it stays in. */
+export interface ProfileLink {
+  profile: string;
+  url: string;
+}
 
 /**
  * The shell's own update, as far as it has got. `ready` stays until the shell
@@ -832,6 +897,8 @@ export interface MafoldHost {
   on(ev: "open-link", cb: (url: string) => void): () => void;
   /** `site-incognito`: a link an incognito tab opened: it stays incognito. */
   on(ev: "open-incognito-link", cb: (url: string) => void): () => void;
+  /** `browser-profiles`: a link a profile's tab opened (`ProfileLink`). */
+  on(ev: "open-profile-link", cb: (link: ProfileLink) => void): () => void;
   /** `site-agent`: see `SiteAgentEvent`. Grants end when nobody listens. */
   on(ev: "site-agent", cb: (e: SiteAgentEvent) => void): () => void;
   /** The page is (true) / is no longer (false) drawing the window's lights;
@@ -866,6 +933,21 @@ export interface MafoldHost {
    *  `tab` is the site's `<webview>` (`getWebContentsId()`). False: not one of
    *  the page's site tabs, or it is gone. */
   freezeSite?(tab: number, frozen: boolean): Promise<boolean>;
+  /** `browser-profiles` only — check the cap; an older shell has no such object. */
+  browsers?: {
+    /** Every Chrome and Safari profile on this computer, imported or not. */
+    list(): Promise<BrowserProfile[]>;
+    /** The sites a profile holds logins for, most cookies first. Reading
+     *  Chrome's asks the Keychain nothing: only names and counts. */
+    sites(id: string): Promise<BrowserSitesResult>;
+    /** Bring the profile's logins in, as they are now: every site, or only
+     *  `sites`. Again = re-import (what changed since replaces what was). */
+    import(id: string, sites?: string[]): Promise<BrowserImportResult>;
+    /** Forget everything brought in from it, and the session itself. */
+    forget(id: string): Promise<boolean>;
+    /** Safari: System Settings ▸ Privacy & Security ▸ Full Disk Access. */
+    openFullDiskAccess(): void;
+  };
   autostart: {
     get(): Promise<boolean>;
     set(on: boolean): Promise<void>;
@@ -1027,6 +1109,11 @@ export const IPC = {
   siteAgentLocate: "mafold-host:site-agent-locate",
   siteAgentAct: "mafold-host:site-agent-act",
   siteFreeze: "mafold-host:site-freeze",
+  browsersList: "mafold-host:browsers-list",
+  browsersSites: "mafold-host:browsers-sites",
+  browsersImport: "mafold-host:browsers-import",
+  browsersForget: "mafold-host:browsers-forget",
+  browsersFullDiskAccess: "mafold-host:browsers-full-disk-access",
   openChatWindow: "mafold-host:open-chat-window",
   closeChatWindow: "mafold-host:close-chat-window",
   /** main → renderer */

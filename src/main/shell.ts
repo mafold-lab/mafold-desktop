@@ -4,8 +4,9 @@
 // (window, tray, menu, bridge, …) don't import each other in circles.
 
 import { appendFileSync } from "node:fs";
-import { session as electronSession, shell as electronShell, webContents as electronWebContents, type BaseWindow, type WebContents } from "electron";
+import { shell as electronShell, webContents as electronWebContents, type BaseWindow, type WebContents } from "electron";
 
+import type { BrowserProfiles } from "./browserProfiles";
 import type { ChatWindows } from "./chatWindows";
 import type { SiteAgents } from "./siteAgent";
 import type { ShellConfig } from "./config";
@@ -15,7 +16,8 @@ import { RateLimit, RecentActs } from "./limits";
 import { log, redact } from "./log";
 import { PendingAuth } from "./oauth";
 import { isExternalUrl } from "./policy";
-import { IPC, SITE_INCOGNITO_PARTITION, type HostEventEnvelope, type HostEventName, type UnreadSummary } from "../shared/desktopHost.generated";
+import { siteSessionOf } from "./siteSessions";
+import { IPC, SITE_INCOGNITO_PARTITION, type HostEventEnvelope, type HostEventName, type ProfileLink, type UnreadSummary } from "../shared/desktopHost.generated";
 
 export class Shell {
   window: BaseWindow | null = null;
@@ -27,6 +29,9 @@ export class Shell {
   chats: ChatWindows | null = null;
   /** The tabs the person let an agent use (siteAgent.ts). */
   siteAgents: SiteAgents | null = null;
+  /** The person's Chrome and Safari profiles brought in (browserProfiles/);
+   *  macOS only. */
+  browserProfiles: BrowserProfiles | null = null;
   quitting = false;
   updateReady = false;
   /** The page stopped answering (window.ts): it cannot take the update's restart. */
@@ -183,10 +188,17 @@ export class Shell {
   }
 
   /** A link for a tab of the app page. The tabs are in the main window, so a
-   *  link from a conversation's own window brings that one up, and a link from
-   *  an incognito tab stays incognito. */
+   *  link from a conversation's own window brings that one up, a link from an
+   *  incognito tab stays incognito, and one from a browser profile's tab stays
+   *  in that profile. A page that doesn't listen for the profile's links (an
+   *  older web) gets it as a plain link: a tab of the sites' own, signed in
+   *  nowhere, rather than none. */
   openTab(url: string, from: WebContents): void {
-    this.emit(from.session === electronSession.fromPartition(SITE_INCOGNITO_PARTITION) ? "open-incognito-link" : "open-link", url);
+    const site = siteSessionOf(from.session);
+    if (site?.profile && this.isSubscribed("open-profile-link")) {
+      const link: ProfileLink = { profile: site.profile, url };
+      this.emit("open-profile-link", JSON.stringify(link));
+    } else this.emit(site?.partition === SITE_INCOGNITO_PARTITION ? "open-incognito-link" : "open-link", url);
     if (this.chats?.owns(from)) this.showWindow();
   }
 

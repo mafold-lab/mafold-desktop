@@ -12,8 +12,9 @@ import { decideSiteNavigation, originOf, siteAsks, sitePermission, siteQuestion,
 import { guardDownloads, guardPasskeyPicker } from "./security";
 import type { Shell } from "./shell";
 import { SiteGrants } from "./siteGrants";
+import { addProfileSession, siteSessionOf } from "./siteSessions";
 import { attachContextMenu } from "./contextMenu";
-import { SITE_INCOGNITO_PARTITION, SITE_PARTITION } from "../shared/desktopHost.generated";
+import { PROFILE_PARTITION_PREFIX, profilePartition, SITE_INCOGNITO_PARTITION, SITE_PARTITION } from "../shared/desktopHost.generated";
 
 let grants: SiteGrants | null = null;
 
@@ -46,6 +47,28 @@ function guardIncognito(shell: Shell): void {
   });
 }
 
+/** A browser profile's session (cap `browser-profiles`): the sites' guards,
+ *  put on before it holds anything and before any tab may show it, once. What
+ *  the person lets a site do there is asked and kept there: a profile is
+ *  someone's other self, and their answers in the sites' own session aren't
+ *  theirs here. */
+const profileGrants = new Map<string, SiteGrants>();
+
+export function guardProfile(shell: Shell, profile: string): void {
+  const partition = profilePartition(profile);
+  if (profileGrants.has(partition)) return;
+  const said = new SiteGrants(join(app.getPath("userData"), "profile-permissions", `${partition.slice(PROFILE_PARTITION_PREFIX.length)}.json`));
+  profileGrants.set(partition, said);
+  addProfileSession(partition, profile, guardSiteSession(shell, partition, said));
+}
+
+/** Everything a profile's session holds, and what its sites were allowed.
+ *  Its guards stay: the session lives as long as the app does. */
+export async function forgetProfile(profile: string): Promise<void> {
+  const partition = profilePartition(profile);
+  await forget(electronSession.fromPartition(partition), profileGrants.get(partition) ?? null);
+}
+
 /** What the tag's methods would let the page do to a site, past showing it.
  *  They run here, on this object (Electron's guest-view manager), and the app
  *  uses none of them. The page isn't the only code in the page: a card runs in
@@ -72,14 +95,14 @@ const SEALED = [
 
 /** A site on a tab of the main window's page, or nothing. `tab` is the page's
  *  word (a `<webview>`'s `getWebContentsId()`), so it is checked: a guest of
- *  the page itself, in one of the sites' sessions (siteAgent.ts, siteFreeze.ts). */
+ *  the page itself, in one of the sites' sessions, a profile's among them
+ *  (siteAgent.ts, siteFreeze.ts). */
 export function pageSite(shell: Shell, tab: number): WebContents | null {
   const c = electronWebContents.fromId(tab);
   if (!c || c.isDestroyed() || c.getType() !== "webview") return null;
   const page = shell.page;
   if (!page || page.isDestroyed() || c.hostWebContents !== page) return null;
-  const ours = [SITE_PARTITION, SITE_INCOGNITO_PARTITION].some((p) => c.session === electronSession.fromPartition(p));
-  return ours ? c : null;
+  return siteSessionOf(c.session) ? c : null;
 }
 
 /** The sealed methods as Electron made them, for the shell's own use: an agent

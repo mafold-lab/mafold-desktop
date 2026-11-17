@@ -59,7 +59,7 @@ export function readNotification(v: unknown): HostNotification | null {
 export const readAppearance = (v: unknown): Appearance | null => (v === "light" || v === "dark" || v === "system" ? v : null);
 
 export const readEventName = (v: unknown): HostEventName | null =>
-  v === "navigate" || v === "share" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" || v === "update" || v === "logs" || v === "open-link" || v === "open-incognito-link" || v === "site-agent" ? v : null;
+  v === "navigate" || v === "share" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" || v === "update" || v === "logs" || v === "open-link" || v === "open-incognito-link" || v === "open-profile-link" || v === "site-agent" ? v : null;
 
 export const readWindowAction = (v: unknown): WindowAction | null =>
   typeof v === "string" && (WINDOW_ACTIONS as readonly string[]).includes(v) ? (v as WindowAction) : null;
@@ -137,4 +137,32 @@ export function readSiteAct(v: unknown): SiteAgentAct | null {
     }
   }
   return null;
+}
+
+// ── browser-profiles ────────────────────────────────────────────────────────
+
+/** A profile's id, in the only shapes `browsers.list` makes: Chrome's own
+ *  profile folders (`chrome:Default`, `chrome:Profile 3`) and Safari's
+ *  (`safari:default`, `safari:<data store UUID>`). Nothing else reaches the
+ *  file system as a folder name. */
+export const readProfileId = (v: unknown): string | null =>
+  typeof v === "string" && (/^chrome:(Default|Profile [1-9]\d{0,3})$/.test(v) || /^safari:(default|[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})$/i.test(v))
+    ? v
+    : null;
+
+/** The most sites one import may name. */
+export const MAX_IMPORT_SITES = 2000;
+
+/** `import(id, sites)`'s sites: undefined is every site; otherwise a list of
+ *  site names (`github.com`), lower-cased, each at most once. Anything else —
+ *  an empty list, a name that isn't a host — refuses the whole call. */
+export function readImportSites(v: unknown): { sites?: string[] } | null {
+  if (v === undefined) return {};
+  if (!Array.isArray(v) || v.length === 0 || v.length > MAX_IMPORT_SITES) return null;
+  const out = new Set<string>();
+  for (const s of v) {
+    if (typeof s !== "string" || s.length > 253 || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(s)) return null;
+    out.add(s.toLowerCase());
+  }
+  return { sites: [...out] };
 }

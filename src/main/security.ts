@@ -20,8 +20,8 @@ import { log, redact } from "./log";
 import { zoomOnWheel } from "./pageZoom";
 import { decideNavigation, decideWindowOpen, hardenSite, mayAttachSite, permissionAllowed, shellUserAgent } from "./policy";
 import type { Shell } from "./shell";
+import { siteSessionOf } from "./siteSessions";
 import { accountChoice, accountLabel, KEYCHAIN_ACCESS_GROUP } from "./webauthn";
-import { SITE_INCOGNITO_PARTITION, SITE_PARTITION } from "../shared/desktopHost.generated";
 
 export const PARTITION = "persist:mafold";
 
@@ -37,10 +37,11 @@ const CHILD = { width: 520, height: 720 };
 export function guardAllContents(shell: Shell): void {
   app.on("web-contents-created", (_e, contents) => {
     // The one <webview> the app has: a site on a tab of the page, in the sites'
-    // own session, with nothing of the shell's. Any other attempt is hostile.
+    // own session (or a browser profile's), with nothing of the shell's. Any other attempt is hostile.
     // (Prefs are what the guest gets: the tag's attributes count for nothing.)
     contents.on("will-attach-webview", (e, prefs, params) => {
-      if (contents !== shell.page || !mayAttachSite(contents.getURL(), params, shell.cfg)) {
+      const imported = (partition: string) => !!shell.browserProfiles?.imported(partition);
+      if (contents !== shell.page || !mayAttachSite(contents.getURL(), params, shell.cfg, imported)) {
         log("refused webview:", redact(params.src ?? ""));
         e.preventDefault();
         return;
@@ -78,8 +79,9 @@ export function guardAllContents(shell: Shell): void {
         shell.openExternal(details.url, "window-open");
         return { action: "deny" };
       }
-      // Its session is its opener's: a popup and its opener can't be apart.
-      const partition = [SITE_PARTITION, SITE_INCOGNITO_PARTITION].find((p) => contents.session === electronSession.fromPartition(p)) ?? PARTITION;
+      // Its session is its opener's: a popup and its opener can't be apart. A
+      // profile's sign-in popup is signed in where the profile is.
+      const partition = siteSessionOf(contents.session)?.partition ?? PARTITION;
       return {
         action: "allow",
         overrideBrowserWindowOptions: {

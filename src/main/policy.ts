@@ -4,7 +4,7 @@
 // to the events.
 
 import type { ShellConfig } from "./config";
-import { SITE_INCOGNITO_PARTITION, SITE_PARTITION } from "../shared/desktopHost.generated";
+import { PROFILE_PARTITION_PREFIX, SITE_INCOGNITO_PARTITION, SITE_PARTITION } from "../shared/desktopHost.generated";
 
 type Origins = Pick<ShellConfig, "webOrigin" | "apiOrigin">;
 
@@ -109,10 +109,20 @@ export function decideSiteNavigation(raw: string): "allow" | "external" | "deny"
 
 /** A `<webview>` may stand in one place: the page, on the web origin, showing
  *  a site from the web, in the sites' own partition (they never share the
- *  Mafold sign-in). `embedder`: the url of the top-level document asking. */
-export function mayAttachSite(embedder: string, params: { partition?: string; src?: string }, o: Origins): boolean {
+ *  Mafold sign-in) or a browser profile's. `embedder`: the url of the
+ *  top-level document asking. `imported`: whether a profile's partition is one
+ *  the person brought in (and the shell guarded): any other name under the
+ *  prefix is a session nobody looked after, and refused. */
+export function mayAttachSite(
+  embedder: string,
+  params: { partition?: string; src?: string },
+  o: Origins,
+  imported: (partition: string) => boolean = () => false,
+): boolean {
   if (parse(embedder)?.origin !== o.webOrigin) return false;
-  if (params.partition !== SITE_PARTITION && params.partition !== SITE_INCOGNITO_PARTITION) return false;
+  const p = params.partition ?? "";
+  const profile = p.startsWith(PROFILE_PARTITION_PREFIX) && p.length > PROFILE_PARTITION_PREFIX.length && imported(p);
+  if (p !== SITE_PARTITION && p !== SITE_INCOGNITO_PARTITION && !profile) return false;
   const src = parse(params.src ?? "");
   return src?.protocol === "https:" || src?.protocol === "http:";
 }
