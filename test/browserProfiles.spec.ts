@@ -31,6 +31,7 @@ import {
 } from "../src/main/browserProfiles/cookies";
 import { listSafariProfiles, parseBinaryCookies, safariCookies } from "../src/main/browserProfiles/safari";
 import { ProfileStore } from "../src/main/browserProfiles/store";
+import { copiesOf, CopyStore, heldPlace, browserPlace, mergeCopies, nextRun, planSync, type HeldCookie } from "../src/main/browserProfiles/sync";
 
 const PASSWORD = "c2VjcmV0LXNhZmUtc3RvcmFnZQ==";
 const key = chromeKey(PASSWORD);
@@ -382,9 +383,101 @@ describe("the store", () => {
     expect(b.get("chrome:Default")).toEqual({ imported_at: 1, imported_sites: 12 });
   });
 
+  it("keeps the chosen sites and the last sync", () => {
+    const file = join(home, "data", "browser-profiles.json");
+    new ProfileStore(file).set("chrome:Profile 1", { imported_at: 1, imported_sites: 2, sites: ["github.com", "x.com"], synced_at: 9 });
+    expect(new ProfileStore(file).get("chrome:Profile 1")).toEqual({ imported_at: 1, imported_sites: 2, sites: ["github.com", "x.com"], synced_at: 9 });
+  });
+
   it("starts empty from nothing, or from nonsense", () => {
     writeFileSync(join(home, "x.json"), "[1,2]");
     expect(new ProfileStore(join(home, "x.json")).ids()).toEqual([]);
     expect(new ProfileStore(join(home, "none.json")).ids()).toEqual([]);
+  });
+});
+
+describe("keeping a profile in step", () => {
+  const c = (host: string, name: string, value: string, path = "/"): BrowserCookie => ({
+    host, name, value, path, secure: true, httpOnly: true, sameSite: "lax",
+  });
+  /** As Electron's `cookies.get` gives it back after `cookies.set`. */
+  const held = (b: BrowserCookie, value = b.value): HeldCookie => ({
+    domain: b.host, hostOnly: !b.host.startsWith("."), name: b.name, path: b.path, value, secure: b.secure,
+  });
+
+  it("names a cookie's place the same from the browser and from Electron", () => {
+    for (const b of [c("github.com", "user_session", "a"), c(".github.com", "_gh_sess", "b"), c("x.com", "auth", "c", "/i")]) {
+      expect(heldPlace(held(b))).toBe(browserPlace(b));
+    }
+    expect(browserPlace(c("github.com", "a", "1"))).not.toBe(browserPlace(c(".github.com", "a", "1")));
+  });
+
+  it("copies a site signed in to since, and leaves the rest alone", () => {
+    const gh = c("github.com", "user_session", "s1");
+    const last = copiesOf([gh]);
+    const yt = c(".youtube.com", "LOGIN_INFO", "y1");
+    const plan = planSync([gh, yt], [held(gh)], last);
+    expect(plan.set).toEqual([yt]);
+    expect(plan.remove).toEqual([]);
+    expect(plan.copies).toEqual(copiesOf([gh, yt]));
+  });
+
+  it("copies a login the browser changed, over Mafold's", () => {
+    const old = c("github.com", "user_session", "s1");
+    const now = { ...old, value: "s2" };
+    expect(planSync([now], [held(old, "mafold-refreshed")], copiesOf([old])).set).toEqual([now]);
+  });
+
+  it("never puts an unchanged browser value back over one the site refreshed here", () => {
+    const gh = c("github.com", "user_session", "s1");
+    const plan = planSync([gh], [held(gh, "refreshed-here")], copiesOf([gh]));
+    expect(plan.set).toEqual([]);
+    expect(plan.remove).toEqual([]);
+  });
+
+  it("signs out here what was signed out of there, unless the login moved on here", () => {
+    const gh = c("github.com", "user_session", "s1");
+    const x = c(".x.com", "auth_token", "t1");
+    const last = copiesOf([gh, x]);
+    const plan = planSync([], [held(gh), held(x, "t2")], last);
+    expect(plan.remove).toEqual([held(gh)]);
+    expect(plan.copies).toEqual({});
+  });
+
+  it("leaves alone what Mafold has that was never copied", () => {
+    const own = c("notion.so", "token_v2", "n");
+    expect(planSync([], [held(own)], {}).remove).toEqual([]);
+  });
+
+  it("copies everything the first time, for a profile brought in before syncing", () => {
+    const gh = c("github.com", "user_session", "s1");
+    expect(planSync([gh], [held(gh)], {}).set).toEqual([gh]);
+  });
+
+  it("an import of some sites replaces only theirs; of the whole profile, all", () => {
+    const gh = c("github.com", "a", "1");
+    const x = c("x.com", "b", "2");
+    const last = copiesOf([gh, x]);
+    const fresh = copiesOf([{ ...gh, value: "3" }]);
+    expect(mergeCopies(last, fresh, new Set(["github.com"]))).toEqual({ ...copiesOf([x]), ...fresh });
+    expect(mergeCopies(last, fresh)).toEqual(fresh);
+  });
+
+  it("keeps fingerprints, never a value", () => {
+    const store = new CopyStore(join(home, "copies"));
+    expect(store.get("chrome:Profile 1")).toBeNull();
+    const copies = copiesOf([c("github.com", "user_session", "very-secret-session")]);
+    store.set("chrome:Profile 1", copies);
+    expect(store.get("chrome:Profile 1")).toEqual(copies);
+    expect(JSON.stringify(copies)).not.toContain("very-secret-session");
+    expect(JSON.stringify(copies)).not.toContain("user_session");
+    store.delete("chrome:Profile 1");
+    expect(store.get("chrome:Profile 1")).toBeNull();
+  });
+
+  it("waits for the browser's write to settle, and runs no more than once in a while", () => {
+    expect(nextRun(100_000, undefined)).toBe(103_000);
+    expect(nextRun(100_000, 95_000)).toBe(115_000);
+    expect(nextRun(100_000, 50_000)).toBe(103_000);
   });
 });

@@ -1,6 +1,7 @@
-// Which profiles have been brought in, and when: `browser-profiles.json` in the
-// app's data. Only that: the cookies themselves live in each profile's session
-// (Chromium's own store), and no key or value is ever written here. The list
+// Which profiles have been brought in, when, for which sites, and when last
+// synced: `browser-profiles.json` in the app's data. Only that: the cookies
+// themselves live in each profile's session (Chromium's own store), and no
+// key or value is ever written here. The list
 // is also what lets a profile's session be shown at all (policy.ts
 // `mayAttachSite`): a profile that isn't here has no tabs.
 
@@ -12,6 +13,11 @@ import { log } from "../log";
 export interface Imported {
   imported_at: number;
   imported_sites: number;
+  /** The sites it was brought in for, when it was some of them (Choose
+   *  sites); absent = the whole profile, new sites included. */
+  sites?: string[];
+  /** When it was last synced with the browser (unix seconds). */
+  synced_at?: number;
 }
 
 export class ProfileStore {
@@ -24,7 +30,13 @@ export class ProfileStore {
       for (const [id, v] of Object.entries(raw)) {
         const o = v as Partial<Imported> | null;
         if (o && typeof o.imported_at === "number" && typeof o.imported_sites === "number") {
-          this.saved.set(id, { imported_at: o.imported_at, imported_sites: o.imported_sites });
+          const sites = Array.isArray(o.sites) ? o.sites.filter((s): s is string => typeof s === "string") : undefined;
+          this.saved.set(id, {
+            imported_at: o.imported_at,
+            imported_sites: o.imported_sites,
+            ...(sites ? { sites } : null),
+            ...(typeof o.synced_at === "number" ? { synced_at: o.synced_at } : null),
+          });
         }
       }
     } catch {

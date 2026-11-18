@@ -325,8 +325,11 @@ export interface BrowserProfile {
   sites: number | null;
   /** When its logins were last brought in (unix seconds); absent = never. */
   imported_at?: number;
-  /** How many sites came in then. */
+  /** How many sites it holds (brought in, and kept in step since). */
   imported_sites?: number;
+  /** When it was last synced with the browser (unix seconds); absent = not
+   *  yet, or a shell from before syncing. */
+  synced_at?: number;
 }
 
 /** A site a profile holds logins for (`browsers.sites`): its registrable
