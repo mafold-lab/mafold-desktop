@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Mafold Browser Import",
+  "version": "0.1.0",
+  "description": "Hands the sign-ins for the sites you pick to the Mafold app on this computer, so your agents can work in them. Nothing leaves your machine.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": ["cookies", "nativeMessaging", "storage"],
+  "optional_host_permissions": ["*://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Mafold Browser Import",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  }
+}

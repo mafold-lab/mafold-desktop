@@ -1,0 +1,134 @@
+// The application menu. Its job on top of the platform basics (an Edit menu —
+// without one, ⌘C/⌘V do nothing on macOS) is to give the page native
+// shortcuts: each item below sends a `command` the page maps to what it
+// already does from the keyboard.
+
+import { app, BrowserWindow, Menu, webContents, type MenuItemConstructorOptions } from "electron";
+
+import { zoomPage } from "./pageZoom";
+import type { Shell } from "./shell";
+import { restartToUpdate } from "./updater";
+import type { ZoomStep } from "./zoom";
+import type { HostCommand } from "../shared/desktopHost.generated";
+
+export function buildMenu(shell: Shell, os: "macos" | "windows" | "linux"): Menu {
+  const t = (k: string) => shell.strings.t(k);
+  const command = (c: HostCommand) => () => {
+    shell.showWindow();
+    shell.emit("command", c);
+  };
+  const go = (label: string, accelerator: string, c: HostCommand): MenuItemConstructorOptions => ({
+    label,
+    accelerator,
+    click: command(c),
+  });
+  const mac = os === "macos";
+
+  const edit: MenuItemConstructorOptions = {
+    label: t("desktop.menu.edit"),
+    submenu: [
+      { role: "undo", label: t("desktop.menu.undo") },
+      { role: "redo", label: t("desktop.menu.redo") },
+      { type: "separator" },
+      { role: "cut", label: t("desktop.menu.cut") },
+      { role: "copy", label: t("desktop.menu.copy") },
+      { role: "paste", label: t("desktop.menu.paste") },
+      ...(mac ? [{ role: "pasteAndMatchStyle", label: t("desktop.menu.pasteAndMatchStyle") } as MenuItemConstructorOptions] : []),
+      { role: "delete", label: t("desktop.menu.delete") },
+      { role: "selectAll", label: t("desktop.menu.selectAll") },
+    ],
+  };
+
+  const goMenu: MenuItemConstructorOptions = {
+    label: t("desktop.menu.go"),
+    submenu: [
+      go(t("desktop.menu.newChat"), "CmdOrCtrl+N", "new-chat"),
+      go(t("desktop.menu.quickSwitcher"), "CmdOrCtrl+K", "quick-switcher"),
+      go(t("desktop.menu.focusComposer"), "CmdOrCtrl+L", "focus-composer"),
+      { type: "separator" },
+      go(t("desktop.menu.nextChat"), "CmdOrCtrl+Alt+Down", "next-chat"),
+      go(t("desktop.menu.prevChat"), "CmdOrCtrl+Alt+Up", "prev-chat"),
+    ],
+  };
+
+  // Reload and zoom act on what is in front: a sign-in popup (a BrowserWindow
+  // of its own, security.ts) or a site on a tab of the page when it has the
+  // keyboard, otherwise the page — a view in the main window (window.ts),
+  // which the roles for them can't find (they act on a BrowserWindow's own
+  // page), nor the bar or the cover beside it. Zoom steps as Chrome's does,
+  // through its sizes (zoom.ts).
+  const page = () => {
+    const f = webContents.getFocusedWebContents();
+    if (f && !f.isDestroyed() && f !== shell.page && (f.getType() === "webview" || BrowserWindow.fromWebContents(f))) return f;
+    return shell.page && !shell.page.isDestroyed() ? shell.page : null;
+  };
+  const zoomBy = (step: ZoomStep) => () => {
+    const p = page();
+    if (p) zoomPage(shell, p, step);
+  };
+  const view: MenuItemConstructorOptions = {
+    label: t("desktop.menu.view"),
+    submenu: [
+      { label: t("desktop.menu.reload"), accelerator: "CmdOrCtrl+R", click: () => page()?.reload() },
+      { type: "separator" },
+      { label: t("desktop.menu.actualSize"), accelerator: "CmdOrCtrl+0", click: zoomBy("reset") },
+      { label: t("desktop.menu.zoomIn"), accelerator: "CmdOrCtrl+Plus", click: zoomBy("in") },
+      // ⌘= is what people press for ⌘+ (no ⇧): the same, not shown.
+      { label: t("desktop.menu.zoomIn"), accelerator: "CmdOrCtrl+=", click: zoomBy("in"), visible: false, acceleratorWorksWhenHidden: true },
+      { label: t("desktop.menu.zoomOut"), accelerator: "CmdOrCtrl+-", click: zoomBy("out") },
+      { type: "separator" },
+      { role: "togglefullscreen", label: t("desktop.menu.fullScreen") },
+    ],
+  };
+
+  const windowMenu: MenuItemConstructorOptions = {
+    label: t("desktop.menu.window"),
+    submenu: [
+      { role: "minimize", label: t("desktop.menu.minimize") },
+      ...(mac ? [{ role: "zoom", label: t("desktop.menu.zoom") } as MenuItemConstructorOptions] : []),
+      { role: "close", label: t("desktop.menu.close") },
+      { type: "separator" },
+      { label: t("desktop.menu.showWindow"), accelerator: "CmdOrCtrl+1", click: () => shell.showWindow() },
+      ...(mac ? [{ type: "separator" } as MenuItemConstructorOptions, { role: "front", label: t("desktop.menu.bringAllToFront") } as MenuItemConstructorOptions] : []),
+    ],
+  };
+
+  const settings: MenuItemConstructorOptions = { label: t("desktop.menu.settings"), accelerator: "CmdOrCtrl+,", click: command("settings") };
+  const update: MenuItemConstructorOptions[] = shell.updateReady
+    ? [{ label: t("desktop.update.restart"), click: () => restartToUpdate() }, { type: "separator" }]
+    : [];
+
+  const template: MenuItemConstructorOptions[] = mac
+    ? [
+        {
+          label: app.name,
+          submenu: [
+            { role: "about", label: t("desktop.menu.about") },
+            { type: "separator" },
+            ...update,
+            settings,
+            { type: "separator" },
+            { role: "hide", label: t("desktop.menu.hide") },
+            { role: "hideOthers", label: t("desktop.menu.hideOthers") },
+            { role: "unhide", label: t("desktop.menu.showAll") },
+            { type: "separator" },
+            { role: "quit", label: t("desktop.menu.quit") },
+          ],
+        },
+        edit,
+        goMenu,
+        view,
+        windowMenu,
+      ]
+    : [
+        {
+          label: t("desktop.menu.file"),
+          submenu: [...update, settings, { type: "separator" }, { role: "quit", label: t("desktop.menu.quit") }],
+        },
+        edit,
+        goMenu,
+        view,
+        windowMenu,
+      ];
+  return Menu.buildFromTemplate(template);
+}
