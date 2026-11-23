@@ -111,6 +111,7 @@ if (webOrigin && window.location.origin === webOrigin) {
     openExternal: (url: string) => ipcRenderer.send(IPC.openExternal, url),
     openChatWindow: (convId: string, dropped?: boolean, channel?: string) => ipcRenderer.send(IPC.openChatWindow, convId, dropped === true, channel),
     closeChatWindow: () => ipcRenderer.send(IPC.closeChatWindow),
+    returnChatWindow: () => ipcRenderer.send(IPC.returnChatWindow),
     clearSiteData: (): Promise<boolean> => ipcRenderer.invoke(IPC.siteDataClear),
     ...(caps.includes("site-agent")
       ? {

@@ -141,6 +141,9 @@ export function registerBridge(
     if (fromOurPage(shell, e)) shell.chats?.closeAll();
     else if (fromChatWindow(shell, e)) shell.chats?.closeOf(e.sender);
   });
+  ipcMain.on(IPC.returnChatWindow, (e) => {
+    if (fromChatWindow(shell, e)) shell.chats?.returnTo(e.sender);
+  });
 
   handle<boolean>(IPC.siteDataClear, () => clearSiteData(), false);
 
@@ -256,10 +259,16 @@ export function registerBridge(
   // The window's lights, drawn by the page (chrome.ts). macOS only: elsewhere
   // the cap is not offered and these are never sent.
   if (os === "macos") {
-    on(IPC.setWindowControls, (_e, drawn) => {
+    // A conversation's own window draws them too (chatWindows.ts): its page
+    // speaks for that window, and the main window's for the main one.
+    const windowFor = (e: IpcMainEvent) =>
+      fromOurPage(shell, e) ? shell.window : fromChatWindow(shell, e) ? shell.chats?.windowOf(e.sender) : null;
+    ipcMain.on(IPC.setWindowControls, (e, drawn) => {
       if (typeof drawn !== "boolean") return;
-      shell.frame?.pageDrawsLights(drawn);
-      shell.window?.setWindowButtonVisibility(!drawn);
+      const w = windowFor(e);
+      if (!w || w.isDestroyed()) return;
+      if (w === shell.window) shell.frame?.pageDrawsLights(drawn);
+      w.setWindowButtonVisibility(!drawn);
     });
     // `window-titlebar`: which layout the page is in — the shell's title bar
     // shows in the phone one (frame.ts). Sent before `setWindowControls`.
@@ -274,11 +283,12 @@ export function registerBridge(
       const dir = app.getPath("userData");
       if (on !== readWindowCorners(dir)) saveWindowCorners(dir, on);
     });
-    on(IPC.windowControl, (_e, action) => {
-      const w = shell.window;
+    ipcMain.on(IPC.windowControl, (e, action) => {
+      const w = windowFor(e);
       const a = readWindowAction(action);
       if (!w || !a) return;
-      // close hides (window.ts), like the system's own button. zoom = fill the
+      // close hides the main window (window.ts), like the system's own button,
+      // and closes a conversation's own. zoom = fill the
       // screen and back (the page sends it for ⌥-click, as macOS does);
       // fullscreen = the green light's plain click.
       if (a === "close") w.close();

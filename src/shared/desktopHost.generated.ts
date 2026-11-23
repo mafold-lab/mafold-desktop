@@ -141,6 +141,10 @@ export const HOST_CAPS = [
   // own: `openChatWindow` takes the channel, from the main window or from a
   // conversation's own, and the window says which by `soloChannel`.
   "chat-channel-windows",
+  // `chat-window-return` — a conversation's own window hands it back:
+  // `returnChatWindow` brings the main window up on that conversation and
+  // closes this one (the ‹ at the head of its list).
+  "chat-window-return",
   // `update` — the shell's own new version: `on("update")` (checking,
   // downloading, ready, error) and `update` (restart into it, check now). Only
   // the shell has a version to install: the page updates by being the live site.
@@ -151,8 +155,10 @@ export type HostCap = (typeof HOST_CAPS)[number];
 
 /** What a conversation's own window offers. The badge, the tray and everything
  *  about this computer stay the main window's. `notify` is here so that the page
- *  doesn't turn to Web Push; the shell drops it, the main window notifies. */
-export const CHAT_WINDOW_CAPS: readonly HostCap[] = ["notify", "external-links", "chat-windows", "chat-channel-windows"];
+ *  doesn't turn to Web Push; the shell drops it, the main window notifies. Its
+ *  lights are the page's, as the main window's are (macOS: the shell drops the
+ *  caps that OS lacks). */
+export const CHAT_WINDOW_CAPS: readonly HostCap[] = ["notify", "external-links", "chat-windows", "chat-channel-windows", "chat-window-return", "window-controls", "window-arrange"];
 
 /** The main window's corners under `window-corners`, in points, in macOS's
  *  continuous curve: CSS gets the same corner from `corner-shape: squircle` at
@@ -867,6 +873,8 @@ export interface MafoldHost {
   openChatWindow?(convId: string, dropped?: boolean, channel?: string): void;
   /** `chat-windows` only: see the cap. */
   closeChatWindow?(): void;
+  /** `chat-window-return` only: see the cap. */
+  returnChatWindow?(): void;
   /** Open `authorizeUrl` in the system browser and resolve with what the
    *  provider sent back to `/app/link/callback`. `state` must carry
    *  `DESKTOP_STATE_PREFIX` — that prefix is how the callback page, running in
@@ -1119,6 +1127,7 @@ export const IPC = {
   browsersFullDiskAccess: "mafold-host:browsers-full-disk-access",
   openChatWindow: "mafold-host:open-chat-window",
   closeChatWindow: "mafold-host:close-chat-window",
+  returnChatWindow: "mafold-host:return-chat-window",
   /** main → renderer */
   event: "mafold-host:event",
 } as const;

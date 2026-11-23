@@ -10,6 +10,9 @@
 // conversation. What belongs to the app stays there, and it keeps running behind
 // them, hidden or not: the badge, the tray, notifications, tabs of sites.
 // `CHAT_WINDOW_CAPS` is what the page in one is told; bridge.ts answers no more.
+// On macOS it has no title bar: the page draws the lights at the head of its
+// list, as the main window's does (chrome.ts), and its ‹ hands the conversation
+// back to the main window (`returnTo`).
 //
 // Unlike the main window, closing one closes it. The ones open when Mafold quits
 // come back with it, where they were (chatWindowPlan.ts).
@@ -18,7 +21,7 @@ import { join } from "node:path";
 import { BrowserWindow, nativeTheme, screen, type WebContents } from "electron";
 
 import { cascadedBounds, CHAT_WINDOW_SIZE, CHAT_WINDOWS_FILE, chatWindowKey, CONV_WINDOW_SIZE, droppedBounds, readChatWindows, remembered, writeChatWindows, type ChatTarget, type SavedChatWindow } from "./chatWindowPlan";
-import type { Point } from "./chrome";
+import { capsFor, NATIVE_TRAFFIC_POSITION, type Point } from "./chrome";
 import { attachContextMenu } from "./contextMenu";
 import { log, redact } from "./log";
 import { restoreZoom, zoomOnWheel } from "./pageZoom";
@@ -28,7 +31,7 @@ import { guardMainNavigation } from "./security";
 import type { Shell } from "./shell";
 import { offlinePage, offlineUrl, ground, pageWebPreferences } from "./window";
 import { fit, MIN_SIZE, type Bounds } from "./windowState";
-import { ALL_CHANNEL, CHAT_WINDOW_CAPS } from "../shared/desktopHost.generated";
+import { ALL_CHANNEL, CHAT_WINDOW_CAPS, IPC } from "../shared/desktopHost.generated";
 
 export class ChatWindows {
   private readonly windows = new Map<string, BrowserWindow>();
@@ -98,6 +101,24 @@ export class ChatWindows {
     for (const w of this.windows.values()) if (!w.isDestroyed() && w.webContents === contents) w.close();
   }
 
+  /** The window that page is in, for its lights (bridge.ts). */
+  windowOf(contents: WebContents): BrowserWindow | null {
+    for (const w of this.windows.values()) if (!w.isDestroyed() && w.webContents === contents) return w;
+    return null;
+  }
+
+  /** The page's ‹: the main window comes up on its conversation, and this one goes. */
+  returnTo(contents: WebContents): void {
+    for (const [key, w] of this.windows) {
+      if (w.isDestroyed() || w.webContents !== contents) continue;
+      const conv = key.split("/")[0];
+      this.shell.showWindow();
+      this.shell.emit("navigate", `#${conv}`);
+      w.close();
+      return;
+    }
+  }
+
   /** An update's restart closes the windows before `before-quit` on macOS. */
   keepForNextLaunch(): void {
     this.staying = true;
@@ -119,15 +140,20 @@ export class ChatWindows {
     const { conv, channel } = target;
     const key = chatWindowKey(target);
     const shell = this.shell;
-    const prefs = pageWebPreferences(shell, this.os, CHAT_WINDOW_CAPS);
+    const mac = this.os === "macos";
+    const os = capsFor(this.os);
+    const prefs = pageWebPreferences(shell, this.os, CHAT_WINDOW_CAPS.filter((c) => os.includes(c)));
     const win = new BrowserWindow({
       ...bounds,
       minWidth: MIN_SIZE.width,
       minHeight: MIN_SIZE.height,
       title: "Mafold",
       backgroundColor: ground(),
-      autoHideMenuBar: this.os !== "macos",
-      icon: this.os === "macos" ? undefined : resourcePath("icon-256.png"),
+      autoHideMenuBar: !mac,
+      icon: mac ? undefined : resourcePath("icon-256.png"),
+      // macOS: no title bar — the page draws the lights at the head of its
+      // list; until it does, the system's sit in the same slot.
+      ...(mac ? { titleBarStyle: "hidden" as const, trafficLightPosition: NATIVE_TRAFFIC_POSITION } : {}),
       webPreferences: {
         ...prefs,
         additionalArguments: [...(prefs.additionalArguments ?? []), `--mafold-solo-chat=${conv}`, ...(channel ? [`--mafold-solo-channel=${channel}`] : [])],
@@ -161,6 +187,15 @@ export class ChatWindows {
       if (!win.isDestroyed()) win.setBackgroundColor(ground());
     };
     nativeTheme.on("updated", reground);
+
+    // Full screen takes the page's lights away, as in the main window (window.ts).
+    if (mac) {
+      const windowState = () => {
+        if (!page.isDestroyed()) page.send(IPC.event, { name: "window", payload: win.isFullScreen() ? "fullscreen" : "windowed" });
+      };
+      win.on("enter-full-screen", windowState);
+      win.on("leave-full-screen", windowState);
+    }
 
     let saveTimer: NodeJS.Timeout | null = null;
     const saveSoon = () => {

@@ -63,7 +63,9 @@ test("the page opens a conversation in its own window, which knows what it is", 
   expect(await open()).toEqual([A]);
   expect(await solo.evaluate(() => mafoldHost.soloChat)).toBe(A);
   expect(await solo.evaluate(() => mafoldHost.soloChannel)).toBeUndefined();
-  expect(await solo.evaluate(() => [...mafoldHost.caps].sort())).toEqual(["chat-channel-windows", "chat-windows", "external-links", "notify"]);
+  // On macOS it has no title bar: the page draws the lights and moves the window.
+  const mac = process.platform === "darwin" ? ["window-arrange", "window-controls"] : [];
+  expect(await solo.evaluate(() => [...mafoldHost.caps].sort())).toEqual(["chat-channel-windows", "chat-window-return", "chat-windows", "external-links", "notify", ...mac]);
   // The main page isn't one.
   expect(await l.page.evaluate(() => mafoldHost.soloChat)).toBeUndefined();
   expect(await l.page.evaluate(() => mafoldHost.caps.includes("chat-windows"))).toBe(true);
