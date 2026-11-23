@@ -371,6 +371,85 @@ test("the loading cover stands in the same corners", async () => {
   }
 });
 
+/** A conversation's own window (chatWindows.ts), on its ground, behind it the
+ *  grey and in front at SPOT; the main window kept by name stays out of the way. */
+async function stageChatWindow(l: Launched, theme: Theme): Promise<Rect> {
+  await l.page.evaluate((c) => (window as unknown as { mafoldHost: { openChatWindow(c: string): void } }).mafoldHost.openChatWindow(c), CHAT);
+  await expect.poll(() => l.app.windows().some((p) => p.url().endsWith(`#${CHAT}`))).toBe(true);
+  const solo = l.app.windows().find((p) => p.url().endsWith(`#${CHAT}`))!;
+  await solo.waitForSelector("#h");
+  await solo.evaluate((ground) => {
+    document.body.replaceChildren();
+    document.documentElement.style.background = ground;
+    document.body.style.background = ground;
+  }, APP_GROUND[theme]);
+  await backdrop(l.app);
+  const b = await l.app.evaluate(({ app: a, BrowserWindow, screen }, s) => {
+    const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().endsWith(`#${s.conv}`))!;
+    (globalThis as unknown as { __chat: Electron.BrowserWindow }).__chat = w;
+    (globalThis as unknown as Globals).__main.hide();
+    const area = screen.getPrimaryDisplay().workArea;
+    w.setBounds({ x: area.x + s.at.x, y: area.y + s.at.y, width: s.at.width, height: s.at.height });
+    w.show();
+    w.moveTop();
+    w.focus();
+    a.focus({ steal: true });
+    return w.getBounds();
+  }, { conv: CHAT, at: SPOT });
+  await settle();
+  return b;
+}
+
+const CHAT = "11111111-1111-4111-8111-111111111111";
+const chatCorners = (app: ElectronApplication) =>
+  app.evaluate(() => (globalThis as unknown as { __mafoldTest: { chatWindowCorners(): number[] } }).__mafoldTest.chatWindowCorners());
+
+test("a conversation's own window has the main window's corners (ops 11-23), and the system's with the flag off", async () => {
+  l = await started({ MAFOLD_DESKTOP_USER_DATA: profileFor(true, "dark") });
+  const b = await stageChatWindow(l, "dark");
+  const ground = hex(APP_GROUND.dark);
+  expect(await chatCorners(l.app)).toEqual([WINDOW_CORNER]);
+  const p = await shoot(l.app, b, "chat-window-on-dark");
+  expect(await l.app.evaluate(() => (globalThis as unknown as { __chat: Electron.BrowserWindow }).__chat.hasShadow())).toBe(true);
+  expectLine(p, b, ground);
+  expectShadow(p, b);
+  expect(filled(p, b, CUT, ground)).toEqual(all(false));
+  const f = filled(p, b, IN, ground);
+  expect([f["top right"], f["bottom left"], f["bottom right"]]).toEqual([true, true, true]);
+  await l.app.close();
+
+  l = await started({ MAFOLD_DESKTOP_USER_DATA: profileFor(false, "dark") });
+  const off = await stageChatWindow(l, "dark");
+  expect(await chatCorners(l.app)).toEqual([0]);
+  expect(filled(await shoot(l.app, off, "chat-window-off-dark"), off, CUT, ground)).toEqual(all(true));
+});
+
+test("a conversation's own window in full screen has no corners, and they come back with it", async () => {
+  test.setTimeout(120_000);
+  l = await started({ MAFOLD_DESKTOP_USER_DATA: profileFor(true, "light") });
+  await stageChatWindow(l, "light");
+  const full = (on: boolean) =>
+    l!.app.evaluate(
+      (_e, v) =>
+        new Promise<boolean>((done) => {
+          const w = (globalThis as unknown as { __chat: Electron.BrowserWindow }).__chat;
+          const t = setTimeout(() => done(false), 8000);
+          const reached = () => {
+            clearTimeout(t);
+            done(true);
+          };
+          if (v) w.once("enter-full-screen", reached);
+          else w.once("leave-full-screen", reached);
+          w.setFullScreen(v);
+        }),
+      on,
+    );
+  expect(await full(true)).toBe(true);
+  await expect.poll(() => chatCorners(l!.app)).toEqual([0]);
+  expect(await full(false)).toBe(true);
+  await expect.poll(() => chatCorners(l!.app)).toEqual([WINDOW_CORNER]);
+});
+
 test("what the page says is what the next launch makes, and only that", async () => {
   const userData = profileFor(false, "dark");
   l = await started({ MAFOLD_DESKTOP_USER_DATA: userData });

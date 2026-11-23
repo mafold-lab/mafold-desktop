@@ -12,13 +12,15 @@
 // `CHAT_WINDOW_CAPS` is what the page in one is told; bridge.ts answers no more.
 // On macOS it has no title bar: the page draws the lights at the head of its
 // list, as the main window's does (chrome.ts), and its ‹ hands the conversation
-// back to the main window (`returnTo`).
+// back to the main window (`returnTo`). Its corners are the main window's
+// (flag `windowCorners`, windowCorners.ts): cut to the same curve, see-through
+// round it, none in full screen; it has no phone layout, so they never go.
 //
 // Unlike the main window, closing one closes it. The ones open when Mafold quits
 // come back with it, where they were (chatWindowPlan.ts).
 
 import { join } from "node:path";
-import { BrowserWindow, nativeTheme, screen, type WebContents } from "electron";
+import { app, BrowserWindow, nativeTheme, screen, type WebContents } from "electron";
 
 import { cascadedBounds, CHAT_WINDOW_SIZE, CHAT_WINDOWS_FILE, chatWindowKey, CONV_WINDOW_SIZE, droppedBounds, readChatWindows, remembered, writeChatWindows, type ChatTarget, type SavedChatWindow } from "./chatWindowPlan";
 import { capsFor, NATIVE_TRAFFIC_POSITION, type Point } from "./chrome";
@@ -30,8 +32,9 @@ import { relaunchUrl } from "./relaunch";
 import { guardMainNavigation } from "./security";
 import type { Shell } from "./shell";
 import { offlinePage, offlineUrl, ground, pageWebPreferences } from "./window";
+import { CLEAR, readWindowCorners, windowCut, type WindowCut } from "./windowCorners";
 import { fit, MIN_SIZE, type Bounds } from "./windowState";
-import { ALL_CHANNEL, CHAT_WINDOW_CAPS, IPC } from "../shared/desktopHost.generated";
+import { ALL_CHANNEL, CHAT_WINDOW_CAPS, IPC, WINDOW_CORNER } from "../shared/desktopHost.generated";
 
 export class ChatWindows {
   private readonly windows = new Map<string, BrowserWindow>();
@@ -39,6 +42,10 @@ export class ChatWindows {
   private saved: SavedChatWindow[];
   /** On the way out: the windows closing now are to come back. */
   private staying = false;
+  /** How round each is cut now (0: the system's), for the tests. */
+  private readonly cornersOf = new Map<string, number>();
+  /** The cut, loaded once: undefined until the first window asks. */
+  private cutter: WindowCut | null | undefined;
 
   constructor(
     private readonly shell: Shell,
@@ -51,6 +58,19 @@ export class ChatWindows {
 
   ids(): string[] {
     return [...this.windows.keys()];
+  }
+
+  /** Each open one's corner, as `ids` lists them. */
+  corners(): number[] {
+    return this.ids().map((k) => this.cornersOf.get(k) ?? 0);
+  }
+
+  /** The main window's choice (window.ts), read as each is made: the flag
+   *  reaches a new one at once, one that exists stays what it was made. */
+  private cutFor(): WindowCut | null {
+    if (this.os !== "macos" || !readWindowCorners(app.getPath("userData"))) return null;
+    if (this.cutter === undefined) this.cutter = windowCut();
+    return this.cutter;
   }
 
   /** The window a message in that channel belongs in, if one is open: the
@@ -143,12 +163,16 @@ export class ChatWindows {
     const mac = this.os === "macos";
     const os = capsFor(this.os);
     const prefs = pageWebPreferences(shell, this.os, CHAT_WINDOW_CAPS.filter((c) => os.includes(c)));
+    const cut = this.cutFor();
     const win = new BrowserWindow({
       ...bounds,
       minWidth: MIN_SIZE.width,
       minHeight: MIN_SIZE.height,
       title: "Mafold",
-      backgroundColor: ground(),
+      // Cut, the window is see-through and its content view stands on the
+      // page's ground in its place, as the main window's does (frame.ts).
+      backgroundColor: cut ? CLEAR : ground(),
+      ...(cut ? { transparent: true, hasShadow: true } : {}),
       autoHideMenuBar: !mac,
       icon: mac ? undefined : resourcePath("icon-256.png"),
       // macOS: no title bar — the page draws the lights at the head of its
@@ -184,13 +208,26 @@ export class ChatWindows {
     });
 
     const reground = () => {
-      if (!win.isDestroyed()) win.setBackgroundColor(ground());
+      if (win.isDestroyed()) return;
+      if (cut) win.contentView.setBackgroundColor(ground());
+      else win.setBackgroundColor(ground());
     };
+    reground();
     nativeTheme.on("updated", reground);
+
+    const corner = (radius: number) => {
+      if (!cut || win.isDestroyed() || this.cornersOf.get(key) === radius) return;
+      this.cornersOf.set(key, radius);
+      cut(win, radius);
+      // The system's shadow is the window's shape, read once until it's told.
+      win.invalidateShadow();
+    };
+    corner(WINDOW_CORNER);
 
     // Full screen takes the page's lights away, as in the main window (window.ts).
     if (mac) {
       const windowState = () => {
+        corner(win.isFullScreen() ? 0 : WINDOW_CORNER);
         if (!page.isDestroyed()) page.send(IPC.event, { name: "window", payload: win.isFullScreen() ? "fullscreen" : "windowed" });
       };
       win.on("enter-full-screen", windowState);
@@ -213,6 +250,7 @@ export class ChatWindows {
     win.once("closed", () => {
       nativeTheme.off("updated", reground);
       this.windows.delete(key);
+      this.cornersOf.delete(key);
     });
 
     void page.loadURL(url);

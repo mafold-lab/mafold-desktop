@@ -296,6 +296,8 @@ if (!app.requestSingleInstanceLock()) {
         page: () => s.page,
         // The conversations in windows of their own (chatWindows.ts).
         chatWindows: () => chats.ids(),
+        // …and how round each is cut (0: the system's corners).
+        chatWindowCorners: () => chats.corners(),
         openChatWindow: (conv: string, at?: { x: number; y: number }) => chats.show({ conv }, at),
       };
     }

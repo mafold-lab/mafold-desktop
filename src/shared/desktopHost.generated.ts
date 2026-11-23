@@ -156,9 +156,9 @@ export type HostCap = (typeof HOST_CAPS)[number];
 /** What a conversation's own window offers. The badge, the tray and everything
  *  about this computer stay the main window's. `notify` is here so that the page
  *  doesn't turn to Web Push; the shell drops it, the main window notifies. Its
- *  lights are the page's, as the main window's are (macOS: the shell drops the
- *  caps that OS lacks). */
-export const CHAT_WINDOW_CAPS: readonly HostCap[] = ["notify", "external-links", "chat-windows", "chat-channel-windows", "chat-window-return", "window-controls", "window-arrange"];
+ *  lights and its corners are the page's, as the main window's are (macOS: the
+ *  shell drops the caps that OS lacks). */
+export const CHAT_WINDOW_CAPS: readonly HostCap[] = ["notify", "external-links", "chat-windows", "chat-channel-windows", "chat-window-return", "window-controls", "window-arrange", "window-corners"];
 
 /** The main window's corners under `window-corners`, in points, in macOS's
  *  continuous curve: CSS gets the same corner from `corner-shape: squircle` at
