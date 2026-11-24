@@ -4,7 +4,7 @@
 // clipped, before anything native sees it. Pure, so test/validate.spec.ts
 // covers it without Electron.
 
-import { ALL_CHANNEL, HOST_COMMANDS, SITE_AGENT_KEYS, WINDOW_ACTIONS, WINDOW_LAYOUTS, type Appearance, type HostEventName, type HostNotification, type SiteAgentAct, type SiteAgentKey, type UnreadSummary, type WindowAction, type WindowLayout } from "../shared/desktopHost.generated";
+import { ALL_CHANNEL, HOST_COMMANDS, SITE_AGENT_KEYS, WINDOW_ACTIONS, WINDOW_LAYOUTS, type Appearance, type HostEventName, type HostNotification, type PageRect, type SiteAgentAct, type SiteAgentKey, type UnreadSummary, type WindowAction, type WindowLayout } from "../shared/desktopHost.generated";
 import { clip } from "./limits";
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -58,8 +58,16 @@ export function readNotification(v: unknown): HostNotification | null {
 
 export const readAppearance = (v: unknown): Appearance | null => (v === "light" || v === "dark" || v === "system" ? v : null);
 
+/** A row's box in the page (`chat-window-fold`): finite, on the page's scale. */
+export const readPageRect = (v: unknown): PageRect | null => {
+  if (!v || typeof v !== "object") return null;
+  const { x, y, width, height } = v as Record<string, unknown>;
+  const ok = (n: unknown, min: number): n is number => typeof n === "number" && Number.isFinite(n) && n >= min && n <= 100_000;
+  return ok(x, -100_000) && ok(y, -100_000) && ok(width, 1) && ok(height, 1) ? { x, y, width, height } : null;
+};
+
 export const readEventName = (v: unknown): HostEventName | null =>
-  v === "navigate" || v === "share" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" || v === "update" || v === "logs" || v === "open-link" || v === "open-incognito-link" || v === "open-profile-link" || v === "site-agent" ? v : null;
+  v === "navigate" || v === "share" || v === "command" || v === "resume" || v === "daemon" || v === "window" || v === "notify-permission" || v === "update" || v === "logs" || v === "open-link" || v === "open-incognito-link" || v === "open-profile-link" || v === "site-agent" || v === "chat-windows" || v === "chat-window-fold" ? v : null;
 
 export const readWindowAction = (v: unknown): WindowAction | null =>
   typeof v === "string" && (WINDOW_ACTIONS as readonly string[]).includes(v) ? (v as WindowAction) : null;

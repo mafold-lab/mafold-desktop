@@ -15,7 +15,7 @@ import { originOf } from "./policy";
 import type { Shell } from "./shell";
 import { SiteFreezes } from "./siteFreeze";
 import { clearSiteData } from "./sites";
-import { readAgentName, readAgentRef, readAppearance, readAuthorizeUrl, readChatChannel, readConvId, readEventName, readGrantId, readImportSites, readLocale, readNotification, readProfileId, readSiteAct, readSiteFreeze, readTabId, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
+import { readAgentName, readAgentRef, readAppearance, readAuthorizeUrl, readChatChannel, readConvId, readEventName, readGrantId, readImportSites, readLocale, readNotification, readPageRect, readProfileId, readSiteAct, readSiteFreeze, readTabId, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
 import { readWindowCorners, saveWindowCorners } from "./windowCorners";
 import {
   IPC,
@@ -132,17 +132,24 @@ export function registerBridge(
     if (typeof url === "string" && url.length <= 8192) shell.openExternal(url, "page");
   });
 
-  ipcMain.on(IPC.openChatWindow, (e, conv, dropped, channel) => {
+  ipcMain.on(IPC.openChatWindow, (e, conv, dropped, channel, from) => {
     if (!fromOurPage(shell, e) && !fromChatWindow(shell, e)) return;
     const id = readConvId(conv);
-    if (id) shell.chats?.show({ conv: id, channel: readChatChannel(channel) }, dropped === true ? screen.getCursorScreenPoint() : undefined);
+    // `from` is a row in the main page: only the main page has one.
+    const row = fromOurPage(shell, e) ? (readPageRect(from) ?? undefined) : undefined;
+    if (id) shell.chats?.show({ conv: id, channel: readChatChannel(channel) }, dropped === true ? screen.getCursorScreenPoint() : undefined, row);
   });
   ipcMain.on(IPC.closeChatWindow, (e) => {
     if (fromOurPage(shell, e)) shell.chats?.closeAll();
     else if (fromChatWindow(shell, e)) shell.chats?.closeOf(e.sender);
   });
   ipcMain.on(IPC.returnChatWindow, (e) => {
-    if (fromChatWindow(shell, e)) shell.chats?.returnTo(e.sender);
+    if (fromChatWindow(shell, e)) void shell.chats?.returnTo(e.sender);
+  });
+  ipcMain.on(IPC.foldChatWindowTo, (e, conv, rect) => {
+    if (!fromOurPage(shell, e)) return;
+    const id = readConvId(conv);
+    if (id) shell.chats?.foldTo(id, rect === null ? null : readPageRect(rect));
   });
 
   handle<boolean>(IPC.siteDataClear, () => clearSiteData(), false);

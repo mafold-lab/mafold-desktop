@@ -33,10 +33,14 @@ declare const mafoldHost: {
   caps: string[];
   soloChat?: string;
   soloChannel?: string;
-  openChatWindow(c: string, dropped?: boolean, channel?: string): void;
+  openChatWindow(c: string, dropped?: boolean, channel?: string, from?: { x: number; y: number; width: number; height: number }): void;
   closeChatWindow(): void;
+  returnChatWindow(): void;
+  foldChatWindowTo(c: string, rect: unknown): void;
+  on(name: string, cb: (payload: never) => void): () => void;
   setUnread(u: unknown): void;
 };
+declare const window: Window & { __events: unknown[]; __out: string[][]; __asked: string[] };
 
 const open = () => l.app.evaluate(() => (globalThis as unknown as { __mafoldTest: { chatWindows(): string[] } }).__mafoldTest.chatWindows());
 
@@ -157,6 +161,64 @@ test("it closes for real, from its own page; the main window stays", async () =>
   await closeFrom(solo);
   await expect.poll(open).toEqual([]);
   expect(await l.page.evaluate(() => document.title)).toBeTruthy();
+});
+
+// ops 11-24: the main window gives up what went to a window of its own, and
+// takes it back by the window's ‹, folding it into its row.
+const ROW = { x: 12, y: 140, width: 300, height: 66 };
+const visibleOf = (conv: string) =>
+  l.app.evaluate(({ BrowserWindow }, c) => BrowserWindow.getAllWindows().filter((w) => w.webContents.getURL().endsWith(`#${c}`)).map((w) => w.isVisible()), conv);
+const flights = () => l.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.webContents.getURL().startsWith("data:")).length);
+
+test("the main page hears which conversations are out: whole ones, not channels", async () => {
+  await l.page.evaluate(() => {
+    window.__out = [];
+    mafoldHost.on("chat-windows", (ids: string[]) => window.__out.push(ids));
+  });
+  const heard = () => l.page.evaluate(() => window.__out.at(-1));
+  await expect.poll(heard).toEqual([]);
+  await l.page.evaluate(([a, b, ch]) => {
+    mafoldHost.openChatWindow(a);
+    mafoldHost.openChatWindow(b, false, ch);
+  }, [A, B, CH]);
+  await expect.poll(heard).toEqual([A]);
+  await closeFrom(await pageOf(A));
+  await expect.poll(heard).toEqual([]);
+});
+
+test("opened from its row, it grows out of it and shows; nothing is left over", async () => {
+  await l.page.evaluate(([c, row]) => mafoldHost.openChatWindow(c, false, undefined, row), [A, ROW] as const);
+  await pageOf(A);
+  await expect.poll(() => visibleOf(A)).toEqual([true]);
+  await expect.poll(flights).toBe(0);
+});
+
+test("its ‹ folds it into the row the main page names, then the main window opens it", async () => {
+  await l.page.evaluate((row) => {
+    window.__asked = [];
+    mafoldHost.on("chat-window-fold", (c: string) => {
+      window.__asked.push(c);
+      mafoldHost.foldChatWindowTo(c, row);
+    });
+  }, ROW);
+  await l.page.evaluate((c) => mafoldHost.openChatWindow(c), A);
+  const solo = await pageOf(A);
+  await solo.evaluate(() => mafoldHost.returnChatWindow()).catch(() => {});
+  await expect.poll(open).toEqual([]);
+  // Under Reduce Motion (as the macOS runners have it) it goes without a fold,
+  // so nobody is asked where the row is.
+  const still = await l.app.evaluate(({ systemPreferences }) => process.platform === "darwin" && systemPreferences.getAnimationSettings().prefersReducedMotion);
+  expect(await l.page.evaluate(() => window.__asked)).toEqual(still ? [] : [A]);
+  await expect.poll(() => l.page.evaluate(() => window.__events)).toContainEqual(["navigate", `#${A}`]);
+  await expect.poll(flights).toBe(0);
+});
+
+test("its ‹ with nobody to say where the row is: it goes, and the main window opens it", async () => {
+  await l.page.evaluate((c) => mafoldHost.openChatWindow(c), A);
+  const solo = await pageOf(A);
+  await solo.evaluate(() => mafoldHost.returnChatWindow()).catch(() => {});
+  await expect.poll(open).toEqual([]);
+  await expect.poll(() => l.page.evaluate(() => window.__events)).toContainEqual(["navigate", `#${A}`]);
 });
 
 test("signing out in the main window closes them all", async () => {

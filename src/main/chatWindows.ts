@@ -20,9 +20,10 @@
 // come back with it, where they were (chatWindowPlan.ts).
 
 import { join } from "node:path";
-import { app, BrowserWindow, nativeTheme, screen, type WebContents } from "electron";
+import { app, BrowserWindow, nativeTheme, screen, type Rectangle, type WebContents } from "electron";
 
 import { cascadedBounds, CHAT_WINDOW_SIZE, CHAT_WINDOWS_FILE, chatWindowKey, CONV_WINDOW_SIZE, droppedBounds, readChatWindows, remembered, writeChatWindows, type ChatTarget, type SavedChatWindow } from "./chatWindowPlan";
+import { FOLD_MS, ghost, GROW_MS, ROW_RADIUS, stillMotion, type Flight } from "./chatWindowFold";
 import { capsFor, NATIVE_TRAFFIC_POSITION, type Point } from "./chrome";
 import { attachContextMenu } from "./contextMenu";
 import { log, redact } from "./log";
@@ -34,7 +35,16 @@ import type { Shell } from "./shell";
 import { offlinePage, offlineUrl, ground, pageWebPreferences } from "./window";
 import { CLEAR, readWindowCorners, windowCut, type WindowCut } from "./windowCorners";
 import { fit, MIN_SIZE, type Bounds } from "./windowState";
-import { ALL_CHANNEL, CHAT_WINDOW_CAPS, IPC, WINDOW_CORNER } from "../shared/desktopHost.generated";
+import { ALL_CHANNEL, CHAT_WINDOW_CAPS, IPC, WINDOW_CORNER, type PageRect } from "../shared/desktopHost.generated";
+
+/** How long the main page has to say where a row is before the window just goes. */
+const ASK_MS = 250;
+/** How long a growing window waits for its page's first paint before it shows anyway. */
+const PAINT_MS = 1500;
+/** The window's corner in CSS: `WINDOW_CORNER` cut, under `corner-shape: squircle`;
+ *  the system's own, uncut. */
+const CUT_RADIUS = 55;
+const SYSTEM_RADIUS = 10;
 
 export class ChatWindows {
   private readonly windows = new Map<string, BrowserWindow>();
@@ -46,6 +56,11 @@ export class ChatWindows {
   private readonly cornersOf = new Map<string, number>();
   /** The cut, loaded once: undefined until the first window asks. */
   private cutter: WindowCut | null | undefined;
+  /** Folding into the main window: already given back to it. */
+  private readonly gone = new Set<string>();
+  private readonly returning = new Set<string>();
+  /** The main page's answer to "where is this conversation's row?", awaited. */
+  private readonly asked = new Map<string, (rect: PageRect | null) => void>();
 
   constructor(
     private readonly shell: Shell,
@@ -54,6 +69,55 @@ export class ChatWindows {
   ) {
     this.file = join(userData, CHAT_WINDOWS_FILE);
     this.saved = readChatWindows(this.file);
+    shell.onSubscribe((name) => {
+      if (name === "chat-windows") this.tell();
+    });
+  }
+
+  /** The main page hears which conversations are in windows of their own
+   *  (`chat-window-fold`): not channels', not one already given back. */
+  private tell(): void {
+    this.shell.emit("chat-windows", this.ids().filter((k) => !k.includes("/") && !this.gone.has(k)).join(","));
+  }
+
+  /** A box in the main page, on the screen; null with no page to measure. */
+  private onScreen(r: PageRect): Rectangle | null {
+    const w = this.shell.window;
+    const page = this.shell.page;
+    const frame = this.shell.frame;
+    if (!w || w.isDestroyed() || !page || page.isDestroyed() || !frame) return null;
+    const c = w.getContentBounds();
+    const p = frame.pageBounds();
+    const z = page.getZoomFactor();
+    return { x: c.x + p.x + r.x * z, y: c.y + p.y + r.y * z, width: r.width * z, height: r.height * z };
+  }
+
+  /** Where that conversation's row is on the screen, if the main page says. */
+  private rowOf(conv: string): Promise<Rectangle | null> {
+    if (!this.shell.isSubscribed("chat-window-fold")) return Promise.resolve(null);
+    this.asked.get(conv)?.(null);
+    return new Promise((resolve) => {
+      const answer = (rect: PageRect | null) => {
+        clearTimeout(timer);
+        if (this.asked.get(conv) === answer) this.asked.delete(conv);
+        resolve(rect ? this.onScreen(rect) : null);
+      };
+      const timer = setTimeout(() => answer(null), ASK_MS);
+      this.asked.set(conv, answer);
+      this.shell.emit("chat-window-fold", conv);
+    });
+  }
+
+  /** The main page's answer to `chat-window-fold`. */
+  foldTo(conv: string, rect: PageRect | null): void {
+    this.asked.get(conv)?.(rect);
+  }
+
+  private flight(key: string, f: Pick<Flight, "from" | "to" | "kind">): Flight {
+    const cut = (this.cornersOf.get(key) ?? 0) > 0;
+    const windowRadius = cut ? CUT_RADIUS : SYSTEM_RADIUS;
+    const fold = f.kind === "fold";
+    return { ...f, ms: fold ? FOLD_MS : GROW_MS, fromRadius: fold ? windowRadius : ROW_RADIUS, toRadius: fold ? ROW_RADIUS : windowRadius, ground: ground(), squircle: cut };
   }
 
   ids(): string[] {
@@ -93,8 +157,9 @@ export class ChatWindows {
   }
 
   /** Open the window, or bring it up. `at`: the cursor where it was dropped,
-   *  which an open one moves to as well. */
-  show(target: ChatTarget, at?: Point): void {
+   *  which an open one moves to as well. `from`: the row in the main page it
+   *  was opened from — a new one grows out of it. */
+  show(target: ChatTarget, at?: Point, from?: PageRect): void {
     const open = this.windows.get(chatWindowKey(target));
     if (open && !open.isDestroyed()) {
       if (at) open.setBounds(droppedBounds(at, open.getBounds(), screen.getDisplayNearestPoint(at).workArea));
@@ -103,7 +168,8 @@ export class ChatWindows {
       open.focus();
       return;
     }
-    this.create(target, this.placeFor(target, at));
+    const row = from && !at && !target.channel && !stillMotion() ? this.onScreen(from) : null;
+    this.create(target, this.placeFor(target, at), row);
   }
 
   /** The ones that were open when Mafold last quit. */
@@ -127,16 +193,39 @@ export class ChatWindows {
     return null;
   }
 
-  /** The page's ‹: the main window comes up on its conversation, and this one goes. */
-  returnTo(contents: WebContents): void {
-    for (const [key, w] of this.windows) {
-      if (w.isDestroyed() || w.webContents !== contents) continue;
-      const conv = key.split("/")[0];
+  /** The page's ‹: the main window comes up on its conversation, and this one
+   *  goes — folding into the conversation's row there, when the main page says
+   *  where that is (`chat-window-fold`). */
+  async returnTo(contents: WebContents): Promise<void> {
+    const found = [...this.windows].find(([, w]) => !w.isDestroyed() && w.webContents === contents);
+    if (!found) return;
+    const [key, win] = found;
+    // A second ‹ while it's on its way is the same one.
+    if (this.gone.has(key) || this.returning.has(key)) return;
+    this.returning.add(key);
+    win.once("closed", () => this.returning.delete(key));
+    const conv = key.split("/")[0];
+    const main = this.shell.window;
+    // Hidden or in the Dock, it has no row to aim at until it's back.
+    if (main && !main.isDestroyed() && (main.isMinimized() || !main.isVisible())) this.shell.showWindow();
+    const to = stillMotion() ? null : await this.rowOf(conv);
+    const shot = to ? await win.webContents.capturePage().catch(() => null) : null;
+    const g = to && !win.isDestroyed() ? await ghost(this.flight(key, { from: win.getBounds(), to, kind: "fold" }), shot) : null;
+    if (win.isDestroyed()) return g?.close();
+    if (g) {
+      g.show();
+      // The still is on screen before the window leaves it.
+      await new Promise((r) => setTimeout(r, 30));
+      win.hide();
       this.shell.showWindow();
-      this.shell.emit("navigate", `#${conv}`);
-      w.close();
-      return;
+      await g.play();
     }
+    this.gone.add(key);
+    this.tell();
+    this.shell.showWindow();
+    this.shell.emit("navigate", `#${conv}`);
+    if (!win.isDestroyed()) win.close();
+    g?.close();
   }
 
   /** An update's restart closes the windows before `before-quit` on macOS. */
@@ -156,7 +245,7 @@ export class ChatWindows {
     return cascadedBounds(from, this.windows.size, size, screen.getDisplayMatching(from).workArea);
   }
 
-  private create(target: ChatTarget, bounds: Bounds): void {
+  private create(target: ChatTarget, bounds: Bounds, growFrom: Rectangle | null = null): void {
     const { conv, channel } = target;
     const key = chatWindowKey(target);
     const shell = this.shell;
@@ -169,6 +258,8 @@ export class ChatWindows {
       minWidth: MIN_SIZE.width,
       minHeight: MIN_SIZE.height,
       title: "Mafold",
+      // Growing out of its row, it shows when the still has.
+      show: !growFrom,
       // Cut, the window is see-through and its content view stands on the
       // page's ground in its place, as the main window's does (frame.ts).
       backgroundColor: cut ? CLEAR : ground(),
@@ -186,6 +277,7 @@ export class ChatWindows {
     const page = win.webContents;
     this.windows.set(key, win);
     this.note(target, win, true);
+    this.tell();
     log("chat window opened");
 
     guardMainNavigation(page, shell, offlineUrl());
@@ -251,9 +343,35 @@ export class ChatWindows {
       nativeTheme.off("updated", reground);
       this.windows.delete(key);
       this.cornersOf.delete(key);
+      this.gone.delete(key);
+      this.tell();
     });
 
+    const painted = growFrom
+      ? new Promise<void>((done) => {
+          win.once("ready-to-show", () => done());
+          setTimeout(done, PAINT_MS);
+        })
+      : null;
     void page.loadURL(url);
+    if (growFrom && painted) void this.grow(key, win, growFrom, painted);
+  }
+
+  /** A new window out of its row: the panel grows to where the window is and
+   *  stays until the page under it has painted. */
+  private async grow(key: string, win: BrowserWindow, from: Rectangle, painted: Promise<void>): Promise<void> {
+    const g = await ghost(this.flight(key, { from, to: win.getBounds(), kind: "grow" }), null);
+    if (g) {
+      g.show();
+      await g.play();
+    }
+    await painted;
+    if (!win.isDestroyed()) {
+      win.show();
+      win.focus();
+    }
+    // A frame for the window to be on screen under it.
+    setTimeout(() => g?.close(), 60);
   }
 
   private note(target: ChatTarget, win: BrowserWindow, open: boolean): void {

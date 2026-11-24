@@ -145,6 +145,14 @@ export const HOST_CAPS = [
   // `returnChatWindow` brings the main window up on that conversation and
   // closes this one (the ‹ at the head of its list).
   "chat-window-return",
+  // `chat-window-fold` — the main window gives up a conversation it hands to a
+  // window of its own (ops 11-24). `on("chat-windows")` names the ones open
+  // in windows (whole conversations; on subscribing, then every change): the
+  // main window doesn't show those, and their rows bring the window up.
+  // `openChatWindow`'s `from` is the row it came from: the window grows out of
+  // it. A window's ‹ asks `on("chat-window-fold")` where its row is, answered by
+  // `foldChatWindowTo`: the window folds into it, then `navigate` opens it here.
+  "chat-window-fold",
   // `update` — the shell's own new version: `on("update")` (checking,
   // downloading, ready, error) and `update` (restart into it, check now). Only
   // the shell has a version to install: the page updates by being the live site.
@@ -237,7 +245,15 @@ export interface OAuthResult {
   error?: string;
 }
 
-export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs" | "open-link" | "open-incognito-link" | "open-profile-link" | "site-agent";
+export type HostEventName = "navigate" | "share" | "command" | "resume" | "daemon" | "window" | "notify-permission" | "update" | "logs" | "open-link" | "open-incognito-link" | "open-profile-link" | "site-agent" | "chat-windows" | "chat-window-fold";
+
+/** A box in the page, CSS px from the top-left of its viewport (`chat-window-fold`). */
+export interface PageRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 /** One thing on a site an agent can act on (`site-agent` `look`): its ref for
  *  `locate`, what it is, what it says, and where it is in the site's viewport
@@ -870,11 +886,14 @@ export interface MafoldHost {
    *  conversation in its own window, or brings that window up. `dropped`: it was
    *  dragged out, the window lands under the cursor (the shell reads where).
    *  `channel` (`chat-channel-windows`): a window for that channel alone. */
-  openChatWindow?(convId: string, dropped?: boolean, channel?: string): void;
+  openChatWindow?(convId: string, dropped?: boolean, channel?: string, from?: PageRect): void;
   /** `chat-windows` only: see the cap. */
   closeChatWindow?(): void;
   /** `chat-window-return` only: see the cap. */
   returnChatWindow?(): void;
+  /** `chat-window-fold` only: where that conversation's row is, asked by
+   *  `on("chat-window-fold")`; null when it has none on screen. */
+  foldChatWindowTo?(convId: string, rect: PageRect | null): void;
   /** Open `authorizeUrl` in the system browser and resolve with what the
    *  provider sent back to `/app/link/callback`. `state` must carry
    *  `DESKTOP_STATE_PREFIX` — that prefix is how the callback page, running in
@@ -912,6 +931,10 @@ export interface MafoldHost {
   on(ev: "open-profile-link", cb: (link: ProfileLink) => void): () => void;
   /** `site-agent`: see `SiteAgentEvent`. Grants end when nobody listens. */
   on(ev: "site-agent", cb: (e: SiteAgentEvent) => void): () => void;
+  /** `chat-window-fold`: the conversations in windows of their own. */
+  on(ev: "chat-windows", cb: (convIds: string[]) => void): () => void;
+  /** `chat-window-fold`: a window is coming back; answer `foldChatWindowTo`. */
+  on(ev: "chat-window-fold", cb: (convId: string) => void): () => void;
   /** The page is (true) / is no longer (false) drawing the window's lights;
    *  the shell hides / shows the system's own accordingly. */
   setWindowControls(drawn: boolean): void;
@@ -1128,6 +1151,7 @@ export const IPC = {
   openChatWindow: "mafold-host:open-chat-window",
   closeChatWindow: "mafold-host:close-chat-window",
   returnChatWindow: "mafold-host:return-chat-window",
+  foldChatWindowTo: "mafold-host:fold-chat-window-to",
   /** main → renderer */
   event: "mafold-host:event",
 } as const;

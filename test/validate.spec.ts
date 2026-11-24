@@ -2,11 +2,20 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { isHostCommand, readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread, readSiteAct, readAgentName, readGrantId, readTabId, readAgentRef, readSiteFreeze, MAX_AGENT_TEXT, readProfileId, readImportSites, MAX_IMPORT_SITES } from "../src/main/validate";
+import { isHostCommand, readAppearance, readAuthorizeUrl, readEventName, readLocale, readNotification, readUnread, readWindowAction, readWindowLayout, sameUnread, readSiteAct, readAgentName, readGrantId, readTabId, readAgentRef, readSiteFreeze, MAX_AGENT_TEXT, readProfileId, readImportSites, MAX_IMPORT_SITES, readPageRect } from "../src/main/validate";
 
 const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
 describe("bridge payloads", () => {
+  it("a row's box is four finite numbers, with a size", () => {
+    expect(readPageRect({ x: 12, y: -4.5, width: 300, height: 66, extra: 1 })).toEqual({ x: 12, y: -4.5, width: 300, height: 66 });
+    expect(readPageRect({ x: 12, y: 0, width: 0, height: 66 })).toBeNull();
+    expect(readPageRect({ x: Infinity, y: 0, width: 1, height: 1 })).toBeNull();
+    expect(readPageRect({ x: "12", y: 0, width: 1, height: 1 })).toBeNull();
+    expect(readPageRect(null)).toBeNull();
+    expect(readEventName("chat-windows")).toBe("chat-windows");
+    expect(readEventName("chat-window-fold")).toBe("chat-window-fold");
+  });
   it("keeps only well-formed unread rows, clipped", () => {
     const u = readUnread({
       total: 3.7,

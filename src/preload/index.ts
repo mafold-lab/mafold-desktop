@@ -42,6 +42,7 @@ import {
   type MafoldHost,
   type NotifyPermission,
   type OAuthResult,
+  type PageRect,
   type ProfileLink,
   type RuntimeLoginResult,
   type RuntimeLoginStart,
@@ -109,9 +110,10 @@ if (webOrigin && window.location.origin === webOrigin) {
     setUnread: (u: UnreadSummary) => ipcRenderer.send(IPC.setUnread, u),
     notify: (n: HostNotification) => ipcRenderer.send(IPC.notify, n),
     openExternal: (url: string) => ipcRenderer.send(IPC.openExternal, url),
-    openChatWindow: (convId: string, dropped?: boolean, channel?: string) => ipcRenderer.send(IPC.openChatWindow, convId, dropped === true, channel),
+    openChatWindow: (convId: string, dropped?: boolean, channel?: string, from?: PageRect) => ipcRenderer.send(IPC.openChatWindow, convId, dropped === true, channel, from),
     closeChatWindow: () => ipcRenderer.send(IPC.closeChatWindow),
     returnChatWindow: () => ipcRenderer.send(IPC.returnChatWindow),
+    foldChatWindowTo: (convId: string, rect: PageRect | null) => ipcRenderer.send(IPC.foldChatWindowTo, convId, rect),
     clearSiteData: (): Promise<boolean> => ipcRenderer.invoke(IPC.siteDataClear),
     ...(caps.includes("site-agent")
       ? {
@@ -144,7 +146,8 @@ if (webOrigin && window.location.origin === webOrigin) {
     setLocale: (lang: string, strings: Record<string, string>) => ipcRenderer.send(IPC.setLocale, lang, strings),
     setAppearance: (mode: Appearance) => ipcRenderer.send(IPC.setAppearance, mode),
     on: ((name: HostEventName, cb: (payload?: string) => void) => {
-      if (name === "navigate" || name === "open-link" || name === "open-incognito-link") return subscribe(name, (p) => typeof p === "string" && cb(p));
+      if (name === "navigate" || name === "open-link" || name === "open-incognito-link" || name === "chat-window-fold") return subscribe(name, (p) => typeof p === "string" && cb(p));
+      if (name === "chat-windows") return subscribe(name, (p) => typeof p === "string" && (cb as unknown as (ids: string[]) => void)(p ? p.split(",") : []));
       if (name === "open-profile-link") {
         return subscribe(name, (p) => {
           if (typeof p !== "string") return;
