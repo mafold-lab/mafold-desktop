@@ -1,0 +1,431 @@
+// The main-process half of `window.mafoldHost`. Every handler first asks who is
+// calling: only the main window's top frame, showing the web origin, is
+// answered, and a conversation's own window (chatWindows.ts) for the little it
+// was offered. Child windows, subframes, the offline page — dropped silently.
+
+import { app, ipcMain, nativeTheme, screen, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from "electron";
+import { arrangedBounds } from "./chrome";
+
+import { saveAppearance } from "./appearance";
+import { shareInboxDir, takeShare } from "./shareInbox";
+import { RateLimit } from "./limits";
+import { log } from "./log";
+import { notifyPermission, openNotifySettings, showNotification, testNotification } from "./notify";
+import { originOf } from "./policy";
+import type { Shell } from "./shell";
+import { SiteFreezes } from "./siteFreeze";
+import { clearSiteData } from "./sites";
+import { readAgentName, readAgentRef, readAppearance, readAuthorizeUrl, readChatChannel, readConvId, readEventName, readGrantId, readImportSites, readLocale, readNotification, readPageRect, readProfileId, readSiteAct, readSiteFreeze, readTabId, readUnread, readWindowAction, readWindowLayout, sameUnread } from "./validate";
+import { readWindowCorners, saveWindowCorners } from "./windowCorners";
+import {
+  IPC,
+  type AdoptCheck,
+  type AdoptResult,
+  type BotRestartResult,
+  type BrowserImportResult,
+  type BrowserProfile,
+  type BrowserSitesResult,
+  type CliInstallResult,
+  type CliRollbackCheck,
+  type CliUpdateResult,
+  type DaemonEnableResult,
+  type DaemonStatus,
+  type DiagnoseResult,
+  type HostShare,
+  type HostUpdate,
+  type LogError,
+  type LogTail,
+  type NotifyPermission,
+  type OAuthResult,
+  type RuntimeLoginResult,
+  type RuntimeLoginStart,
+  type SiteAgentActResult,
+  type SiteAgentBox,
+  type SiteAgentLook,
+} from "../shared/desktopHost.generated";
+import type { DaemonManager } from "./daemon/manager";
+import { isChannel, isUsername } from "./daemon/model";
+import type { Updater } from "./updater";
+
+/** The page's name for one follow: it counts them from 1. */
+const isFollowId = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
+
+function fromTopOf(page: WebContents | null, shell: Shell, e: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  const frame = e.senderFrame;
+  if (!page || page.isDestroyed() || !frame || e.sender !== page) return false;
+  // Compare the frame by identity of process + routing id, not object identity.
+  const main = page.mainFrame;
+  return frame.processId === main.processId && frame.routingId === main.routingId && originOf(frame.url) === shell.cfg.webOrigin;
+}
+
+export const fromOurPage = (shell: Shell, e: IpcMainEvent | IpcMainInvokeEvent): boolean => fromTopOf(shell.page, shell, e);
+
+/** The top frame of a conversation's own window, showing the web origin. */
+const fromChatWindow = (shell: Shell, e: IpcMainEvent): boolean => !!shell.chats?.owns(e.sender) && fromTopOf(e.sender, shell, e);
+
+export function registerBridge(
+  shell: Shell,
+  os: "macos" | "windows" | "linux",
+  autostart: { get(): boolean; set(on: boolean): void },
+  daemon: DaemonManager,
+  updater: Updater,
+): void {
+  const on = (channel: string, fn: (e: IpcMainEvent, ...args: unknown[]) => void) =>
+    ipcMain.on(channel, (e, ...args) => {
+      if (!fromOurPage(shell, e)) return;
+      try {
+        fn(e, ...args);
+      } catch (err) {
+        log(`bridge ${channel} failed:`, err);
+      }
+    });
+  const handle = <T>(channel: string, fn: (...args: unknown[]) => Promise<T> | T, refused: T) =>
+    ipcMain.handle(channel, async (e, ...args) => {
+      if (!fromOurPage(shell, e)) return refused;
+      try {
+        return await fn(...args);
+      } catch (err) {
+        log(`bridge ${channel} failed:`, err);
+        return refused;
+      }
+    });
+
+  on(IPC.subscribe, (_e, name) => {
+    const n = readEventName(name);
+    if (n) shell.subscribe(n);
+  });
+  on(IPC.unsubscribe, (_e, name) => {
+    const n = readEventName(name);
+    if (n) shell.unsubscribe(n);
+  });
+
+  on(IPC.setUnread, (_e, v) => {
+    const u = readUnread(v);
+    // The page can send this on every change to its conversation list — a bot
+    // streaming a reply is several a second. Only a summary that differs is news.
+    if (!u || sameUnread(u, shell.unread)) return;
+    shell.unread = u;
+    shell.changed();
+  });
+
+  on(IPC.notify, (_e, v) => {
+    const n = readNotification(v);
+    if (n) showNotification(shell, n, os);
+  });
+
+  // Whether the system shows them (notify.ts): what the shell has seen, a test
+  // notification in its own words (one every two seconds at most), and the
+  // system's settings pane for Mafold.
+  const tests = new RateLimit(2000);
+  handle<NotifyPermission>(IPC.notifyPermission, () => notifyPermission(), "unknown");
+  handle<NotifyPermission>(
+    IPC.notifyTest,
+    () => (tests.allow("test", Date.now()) ? testNotification(shell, os) : notifyPermission()),
+    "unknown",
+  );
+  on(IPC.notifySettings, () => openNotifySettings(shell, os, process.getSystemVersion()));
+
+  handle<HostShare | null>(IPC.shareTake, () => (os === "macos" ? takeShare(shareInboxDir()) : null), null);
+
+  ipcMain.on(IPC.openExternal, (e, url) => {
+    if (!fromOurPage(shell, e) && !fromChatWindow(shell, e)) return;
+    if (typeof url === "string" && url.length <= 8192) shell.openExternal(url, "page");
+  });
+
+  ipcMain.on(IPC.openChatWindow, (e, conv, dropped, channel, from) => {
+    if (!fromOurPage(shell, e) && !fromChatWindow(shell, e)) return;
+    const id = readConvId(conv);
+    // `from` is a row in the main page: only the main page has one.
+    const row = fromOurPage(shell, e) ? (readPageRect(from) ?? undefined) : undefined;
+    if (id) shell.chats?.show({ conv: id, channel: readChatChannel(channel) }, dropped === true ? screen.getCursorScreenPoint() : undefined, row);
+  });
+  ipcMain.on(IPC.closeChatWindow, (e) => {
+    if (fromOurPage(shell, e)) shell.chats?.closeAll();
+    else if (fromChatWindow(shell, e)) shell.chats?.closeOf(e.sender);
+  });
+  ipcMain.on(IPC.returnChatWindow, (e) => {
+    if (fromChatWindow(shell, e)) void shell.chats?.returnTo(e.sender);
+  });
+  ipcMain.on(IPC.foldChatWindowTo, (e, conv, rect) => {
+    if (!fromOurPage(shell, e)) return;
+    const id = readConvId(conv);
+    if (id) shell.chats?.foldTo(id, rect === null ? null : readPageRect(rect));
+  });
+
+  handle<boolean>(IPC.siteDataClear, () => clearSiteData(), false);
+
+  // An agent on a site tab (siteAgent.ts): the person says yes in the shell's
+  // dialog; everything after that is checked against that grant.
+  const agents = shell.siteAgents;
+  if (agents) {
+    handle<string | null>(
+      IPC.siteAgentGrant,
+      (tab, agent) => {
+        const t = readTabId(tab);
+        const a = readAgentName(agent);
+        return t && a ? agents.grant(t, a) : null;
+      },
+      null,
+    );
+    on(IPC.siteAgentEnd, (_e, grant) => {
+      const g = readGrantId(grant);
+      if (g) agents.end(g);
+    });
+    handle<SiteAgentLook | null>(
+      IPC.siteAgentLook,
+      (grant, shot) => {
+        const g = readGrantId(grant);
+        return g ? agents.look(g, shot === true) : null;
+      },
+      null,
+    );
+    handle<SiteAgentBox | null>(
+      IPC.siteAgentLocate,
+      (grant, ref) => {
+        const g = readGrantId(grant);
+        const r = readAgentRef(ref);
+        return g && r ? agents.locate(g, r) : null;
+      },
+      null,
+    );
+    handle<SiteAgentActResult>(
+      IPC.siteAgentAct,
+      (grant, act) => {
+        const g = readGrantId(grant);
+        const a = readSiteAct(act);
+        return g && a ? agents.act(g, a) : { ok: false, error: "refused" };
+      },
+      { ok: false, error: "failed" },
+    );
+  }
+
+  // A site tab put away goes still, and back (siteFreeze.ts): only the
+  // page's own site tabs, checked like an agent's.
+  const freezes = new SiteFreezes(shell);
+  handle<boolean>(
+    IPC.siteFreeze,
+    (tab, frozen) => {
+      const f = readSiteFreeze(tab, frozen);
+      return f ? freezes.set(f.tab, f.frozen) : false;
+    },
+    false,
+  );
+
+  // The person's Chrome and Safari logins (browserProfiles/; macOS, where the
+  // cap is offered). The page names a profile by an id `list` made and, for
+  // an import, the sites; the Keychain and Full Disk Access ask the person in
+  // the system's own words, never the page's.
+  const browsers = shell.browserProfiles;
+  if (os === "macos" && browsers) {
+    handle<BrowserProfile[]>(IPC.browsersList, () => browsers.list(), []);
+    handle<BrowserSitesResult>(
+      IPC.browsersSites,
+      (id) => {
+        const p = readProfileId(id);
+        return p ? browsers.sites(p) : { ok: false, error: "failed", detail: "refused" };
+      },
+      { ok: false, error: "failed" },
+    );
+    handle<BrowserImportResult>(
+      IPC.browsersImport,
+      (id, sites) => {
+        const p = readProfileId(id);
+        const s = readImportSites(sites);
+        return p && s ? browsers.import(p, s.sites) : { ok: false, error: "failed", detail: "refused" };
+      },
+      { ok: false, error: "failed" },
+    );
+    handle<boolean>(
+      IPC.browsersForget,
+      (id) => {
+        const p = readProfileId(id);
+        return p ? browsers.forget(p) : false;
+      },
+      false,
+    );
+    on(IPC.browsersFullDiskAccess, () => browsers.openFullDiskAccess());
+  }
+
+  on(IPC.setLocale, (_e, lang, strings) => {
+    const l = readLocale(lang, strings);
+    if (!l) return;
+    shell.strings.setLocale(l.lang, l.strings);
+    shell.changed();
+  });
+
+  // The window's ground, the tray and the menus follow the page's theme — and
+  // so does the next launch's first frame (appearance.ts). The page applies
+  // its theme on every load; only a change is written.
+  on(IPC.setAppearance, (_e, mode) => {
+    const m = readAppearance(mode);
+    if (!m || m === nativeTheme.themeSource) return;
+    nativeTheme.themeSource = m;
+    saveAppearance(app.getPath("userData"), m);
+  });
+
+  // The window's lights, drawn by the page (chrome.ts). macOS only: elsewhere
+  // the cap is not offered and these are never sent.
+  if (os === "macos") {
+    // A conversation's own window draws them too (chatWindows.ts): its page
+    // speaks for that window, and the main window's for the main one.
+    const windowFor = (e: IpcMainEvent) =>
+      fromOurPage(shell, e) ? shell.window : fromChatWindow(shell, e) ? shell.chats?.windowOf(e.sender) : null;
+    ipcMain.on(IPC.setWindowControls, (e, drawn) => {
+      if (typeof drawn !== "boolean") return;
+      const w = windowFor(e);
+      if (!w || w.isDestroyed()) return;
+      if (w === shell.window) shell.frame?.pageDrawsLights(drawn);
+      w.setWindowButtonVisibility(!drawn);
+    });
+    // `window-titlebar`: which layout the page is in — the shell's title bar
+    // shows in the phone one (frame.ts). Sent before `setWindowControls`.
+    on(IPC.setWindowLayout, (_e, layout) => {
+      const l = readWindowLayout(layout);
+      if (l) shell.frame?.setLayout(l);
+    });
+    // `window-corners`: what the next launch makes (windowCorners.ts). The page
+    // says it on every load; only a change is written.
+    on(IPC.setWindowCorners, (_e, on) => {
+      if (typeof on !== "boolean") return;
+      const dir = app.getPath("userData");
+      if (on !== readWindowCorners(dir)) saveWindowCorners(dir, on);
+    });
+    ipcMain.on(IPC.windowControl, (e, action) => {
+      const w = windowFor(e);
+      const a = readWindowAction(action);
+      if (!w || !a) return;
+      // close hides the main window (window.ts), like the system's own button,
+      // and closes a conversation's own. zoom = fill the
+      // screen and back (the page sends it for ⌥-click, as macOS does);
+      // fullscreen = the green light's plain click.
+      if (a === "close") w.close();
+      else if (a === "minimize") w.minimize();
+      else if (a === "zoom") {
+        if (w.isMaximized()) w.unmaximize();
+        else w.maximize();
+      } else if (a === "fullscreen") w.setFullScreen(!w.isFullScreen());
+      else {
+        // The move-and-resize menu: out of full screen / zoom first, so the
+        // window lands where asked instead of springing back on the next toggle.
+        if (w.isFullScreen()) return;
+        if (w.isMaximized()) w.unmaximize();
+        const area = screen.getDisplayMatching(w.getBounds()).workArea;
+        w.setBounds(arrangedBounds(a, area, w.getBounds()), true);
+      }
+    });
+  }
+
+  handle<OAuthResult>(
+    IPC.oauth,
+    async (url, state) => {
+      const authorizeUrl = readAuthorizeUrl(url);
+      if (!authorizeUrl || typeof state !== "string") return { error: "invalid request" };
+      const { accepted, result } = shell.pending.begin(state, Date.now());
+      if (accepted && !shell.openExternal(authorizeUrl, "oauth")) {
+        shell.pending.deliver(state, { error: "could not open the browser" }, Date.now());
+      }
+      return result;
+    },
+    { error: "refused" },
+  );
+
+  handle<boolean>(IPC.autostartGet, () => autostart.get(), false);
+  handle<boolean>(
+    IPC.autostartSet,
+    (on) => {
+      if (typeof on !== "boolean") return false;
+      autostart.set(on);
+      return true;
+    },
+    false,
+  );
+
+  // Run bots on this computer (daemon/manager.ts). The page names the account;
+  // the shell asks the person natively before changing anything.
+  handle<DaemonStatus | null>(IPC.daemonStatus, () => daemon.refresh(), null);
+  handle<DaemonEnableResult>(
+    IPC.daemonEnable,
+    (username) => (isUsername(username) ? daemon.enable(username) : { error: "invalid account" }),
+    { error: "refused" },
+  );
+  handle<{ ok: boolean; error?: string }>(
+    IPC.daemonDisable,
+    (username) => (isUsername(username) ? daemon.disable(username) : { ok: false, error: "invalid account" }),
+    { ok: false, error: "refused" },
+  );
+  // A bot's handle (`owner:bot`) the page passes; only one configured here is
+  // restarted (`DaemonManager.restart`) — and, when the page says who it is
+  // signed in as, only that person's.
+  handle<BotRestartResult>(
+    IPC.daemonRestart,
+    (name, username) =>
+      isUsername(name) && (username === undefined || isUsername(username))
+        ? daemon.restart(name, username)
+        : { ok: false, error: "refused" },
+    { ok: false, error: "refused" },
+  );
+  handle<DaemonEnableResult>(
+    IPC.daemonRelogin,
+    (username) => (isUsername(username) ? daemon.relogin(username) : { error: "invalid account" }),
+    { error: "refused" },
+  );
+  handle<RuntimeLoginStart>(
+    IPC.runtimeLogin,
+    (runtime) => (typeof runtime === "string" ? daemon.runtimeLogin(runtime) : { error: "refused" }),
+    { error: "refused" },
+  );
+  handle<RuntimeLoginResult>(IPC.runtimeLoginCode, (code) => daemon.runtimeLoginCode(code), { ok: false, error: "refused" });
+  handle<void>(IPC.runtimeLoginCancel, () => daemon.runtimeLoginCancel(), undefined);
+
+  // This computer's logs (activity center D4). Like everything here, only the
+  // main window's page is answered: a card runs in a frame of its own and
+  // never reaches the bridge. `bot` null = the supervisor's log.
+  const logSource = (username: unknown, bot: unknown): username is string => isUsername(username) && (bot === null || isUsername(bot));
+  handle<LogTail>(
+    IPC.daemonLogs,
+    (username, bot, lines) => (logSource(username, bot) ? daemon.logs(username, bot as string | null, lines) : { ok: false, error: "refused" }),
+    { ok: false, error: "refused" },
+  );
+  handle<{ ok: true } | { ok: false; error: LogError }>(
+    IPC.logsFollow,
+    (id, username, bot, lines) =>
+      isFollowId(id) && logSource(username, bot) ? daemon.followLogs(id, username, bot as string | null, lines) : { ok: false, error: "refused" },
+    { ok: false, error: "refused" },
+  );
+  on(IPC.logsStop, (_e, id) => {
+    if (isFollowId(id)) daemon.stopFollow(id, "closed");
+  });
+  handle<DiagnoseResult>(IPC.diagnose, () => daemon.diagnose(), { ok: false, error: "refused" });
+
+  // mafold-cli's own updates here (activity center D5). The page passes a
+  // boolean or a channel name, nothing else; a rollback asks natively first.
+  handle<CliUpdateResult>(IPC.cliCheck, () => daemon.checkUpdate(), { ok: false, error: "refused" });
+  handle<CliInstallResult>(IPC.cliInstall, () => daemon.updateCli(), { ok: false, error: "refused" });
+  handle<CliUpdateResult>(
+    IPC.cliAutoUpdate,
+    (on) => (typeof on === "boolean" ? daemon.setAutoUpdate(on) : { ok: false, error: "refused" }),
+    { ok: false, error: "refused" },
+  );
+  handle<CliUpdateResult>(IPC.cliChannel, (channel) => (isChannel(channel) ? daemon.setChannel(channel) : { ok: false, error: "refused" }), {
+    ok: false,
+    error: "refused",
+  });
+  handle<CliRollbackCheck>(IPC.cliRollbackCheck, () => daemon.rollbackCheck(), { ok: false, error: "refused" });
+  handle<CliInstallResult>(IPC.cliRollback, () => daemon.rollback(), { ok: false, error: "refused" });
+
+  // Handing this computer's bots to Mafold (activity center D6): the page
+  // passes nothing; the shell asks natively first.
+  handle<AdoptCheck>(IPC.adoptCheck, () => daemon.adoptCheck(), { ok: false, error: "refused" });
+  handle<AdoptResult>(IPC.adopt, () => daemon.adopt(), { ok: false, error: "refused" });
+
+  // The shell's own update (updater.ts): where it has got, restart into a ready
+  // one, and a check — at most one a minute reaches the feed; sooner, the
+  // answer is the state as it is.
+  const checks = new RateLimit(60_000);
+  handle<HostUpdate | null>(IPC.updateState, () => updater.state(), null);
+  handle<boolean>(IPC.updateInstall, () => updater.install(), false);
+  handle<HostUpdate | null>(IPC.updateCheck, () => (checks.allow("check", Date.now()) ? updater.check() : updater.state()), null);
+
+  // Expiry of abandoned authorizations, so a forgotten tab's promise settles.
+  setInterval(() => shell.pending.sweep(Date.now()), 60_000).unref();
+}

@@ -1,0 +1,7 @@
+{
+  "name": "com.mafold.import",
+  "description": "Mafold Browser Import — relays cookie imports from the Chrome extension to the Mafold desktop app on this machine.",
+  "path": "REPLACED_AT_INSTALL_BY_THE_DESKTOP_APP",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://REPLACED_WITH_THE_PUBLISHED_EXTENSION_ID/"]
+}
